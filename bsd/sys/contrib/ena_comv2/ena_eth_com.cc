@@ -31,7 +31,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "ena_eth_com.h"
+#include "ena_eth_com.hh"
+#include <cstdint>
+#include <sys/types.h>
 
 static struct ena_eth_io_rx_cdesc_base *ena_com_get_next_rx_cdesc(
 	struct ena_com_io_cq *io_cq)
@@ -331,7 +333,7 @@ static int ena_com_create_meta(struct ena_com_io_sq *io_sq,
 {
 	struct ena_eth_io_tx_meta_desc *meta_desc = NULL;
 
-	meta_desc = get_sq_desc(io_sq);
+	meta_desc = static_cast<ena_eth_io_tx_meta_desc*>(get_sq_desc(io_sq));
 	if (unlikely(!meta_desc))
 		return ENA_COM_FAULT;
 
@@ -402,11 +404,11 @@ static void ena_com_rx_set_flags(struct ena_com_io_cq *io_cq,
 				 struct ena_com_rx_ctx *ena_rx_ctx,
 				 struct ena_eth_io_rx_cdesc_base *cdesc)
 {
-	ena_rx_ctx->l3_proto = cdesc->status &
-		ENA_ETH_IO_RX_CDESC_BASE_L3_PROTO_IDX_MASK;
+	ena_rx_ctx->l3_proto = static_cast<ena_eth_io_l3_proto_index>(cdesc->status &
+		ENA_ETH_IO_RX_CDESC_BASE_L3_PROTO_IDX_MASK);
 	ena_rx_ctx->l4_proto =
-		(cdesc->status & ENA_ETH_IO_RX_CDESC_BASE_L4_PROTO_IDX_MASK) >>
-		ENA_ETH_IO_RX_CDESC_BASE_L4_PROTO_IDX_SHIFT;
+		static_cast<ena_eth_io_l4_proto_index>((cdesc->status & ENA_ETH_IO_RX_CDESC_BASE_L4_PROTO_IDX_MASK) >>
+		ENA_ETH_IO_RX_CDESC_BASE_L4_PROTO_IDX_SHIFT);
 	ena_rx_ctx->l3_csum_err =
 		!!((cdesc->status & ENA_ETH_IO_RX_CDESC_BASE_L3_CSUM_ERR_MASK) >>
 		ENA_ETH_IO_RX_CDESC_BASE_L3_CSUM_ERR_SHIFT);
@@ -474,7 +476,7 @@ int ena_com_prepare_tx(struct ena_com_io_sq *io_sq,
 		return ENA_COM_INVAL;
 	}
 
-	rc = ena_com_write_header_to_bounce(io_sq, buffer_to_push, header_len);
+	rc = ena_com_write_header_to_bounce(io_sq, static_cast<uint8_t*>(buffer_to_push), header_len);
 	if (unlikely(rc))
 		return rc;
 
@@ -495,7 +497,7 @@ int ena_com_prepare_tx(struct ena_com_io_sq *io_sq,
 		return rc;
 	}
 
-	desc = get_sq_desc(io_sq);
+	desc = static_cast<ena_eth_io_tx_desc*>(get_sq_desc(io_sq));
 	if (unlikely(!desc))
 		return ENA_COM_FAULT;
 	memset(desc, 0x0, sizeof(struct ena_eth_io_tx_desc));
@@ -556,7 +558,7 @@ int ena_com_prepare_tx(struct ena_com_io_sq *io_sq,
 				return rc;
 			}
 
-			desc = get_sq_desc(io_sq);
+			desc = static_cast<ena_eth_io_tx_desc*>(get_sq_desc(io_sq));
 			if (unlikely(!desc))
 				return ENA_COM_FAULT;
 
@@ -674,7 +676,7 @@ int ena_com_add_single_rx_desc(struct ena_com_io_sq *io_sq,
 		return ENA_COM_NO_SPACE;
 
 	/* virt_addr allocation success is checked before calling this function */
-	desc = get_sq_desc_regular_queue(io_sq);
+	desc = static_cast<ena_eth_io_rx_desc*>(get_sq_desc_regular_queue(io_sq));
 
 	memset(desc, 0x0, sizeof(struct ena_eth_io_rx_desc));
 

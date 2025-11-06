@@ -35,19 +35,18 @@
 #define ENA_H
 
 
-#include "ena_comv2/ena_com.h"
-#include "ena_comv2/ena_eth_com.h"
+#include "ena_comv1/ena_com.h"
+#include "ena_comv1/ena_eth_com.h"
 #include "api/bypass/pktbuf.hh"
 #include <api/bypass/net_eth.hh>
 
 #include <bsd/porting/callout.h>
-#include <cstdint>
 #include <osv/msi.hh>
 #include "drivers/pci-device.hh"
 
 #define ENA_DRV_MODULE_VER_MAJOR	2
-#define ENA_DRV_MODULE_VER_MINOR	8
-#define ENA_DRV_MODULE_VER_SUBMINOR	1
+#define ENA_DRV_MODULE_VER_MINOR	6
+#define ENA_DRV_MODULE_VER_SUBMINOR	3
 
 #define ENA_DRV_MODULE_NAME		"ena"
 

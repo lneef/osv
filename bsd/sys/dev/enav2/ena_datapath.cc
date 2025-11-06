@@ -27,18 +27,16 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include "ena_comv2/ena_com.h"
-#include "ena_comv2/ena_eth_com.h"
-#include "ena_comv2/ena_plat.h"
+__FBSDID("$FreeBSD$");
 #include "osv/mmu.hh"
 #include "osv/virt_to_phys.hh"
 #include <algorithm>
 #include <cstdint>
-__FBSDID("$FreeBSD$");
-
 // #define ENA_LOG_ENABLE 1
 // #define ENA_LOG_IO_ENABLE 1
-
+#include "ena_comv1/ena_com.h"
+#include "ena_comv1/ena_eth_com.h"
+#include "ena_comv1/ena_plat.h"
 #include "enav2.h"
 
 #include <osv/sched.hh>
@@ -198,6 +196,7 @@ static int ena_tx_cleanup(struct ena_ring *tx_ring) {
   if(likely(total_tx_desc > 0 )){
       tx_ring->next_to_clean = next_to_clean;
       ena_com_comp_ack(tx_ring->ena_com_io_sq, total_tx_desc);
+      ena_com_update_dev_comp_head(tx_ring->ena_com_io_cq);
   }
 
   /*
@@ -516,6 +515,7 @@ static uint16_t ena_xmit_pkts(ena_ring *tx_queue, struct pkt_buf **pbufs,
   }
   if (likely(tx_ring->pkts_without_db)) {
     ena_com_write_sq_doorbell(tx_ring->ena_com_io_sq);
+    ena_com_update_dev_comp_head(tx_ring->ena_com_io_cq);
     tx_ring->pkts_without_db = false;
   }
   return sent_idx;

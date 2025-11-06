@@ -706,8 +706,8 @@ bsd += bsd/sys/dev/hyperv/vmbus/hyperv.o
 endif
 ifeq ($(conf_networking_stack),1)
 ifeq ($(conf_drivers_ena),1)
-bsd += bsd/sys/contrib/ena_com/ena_eth_com.o
-bsd += bsd/sys/contrib/ena_com/ena_com.o
+bsd += bsd/sys/contrib/ena_comv1/ena_eth_com.o
+bsd += bsd/sys/contrib/ena_comv1/ena_com.o
 bsd += bsd/sys/dev/enav2/ena_datapath.o
 bsd += bsd/sys/dev/enav2/enav2.o
 $(out)/bsd/sys/dev/enav2/%.o: CXXFLAGS += -Ibsd/sys/contrib

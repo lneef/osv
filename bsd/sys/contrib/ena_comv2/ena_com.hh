@@ -34,7 +34,7 @@
 #ifndef ENA_COM
 #define ENA_COM
 
-#include "ena_plat.h"
+#include "ena_plat.hh"
 
 #define ENA_MAX_NUM_IO_QUEUES 128U
 /* We need to queues for each IO (on for Tx and one for Rx) */
@@ -462,10 +462,7 @@ struct ena_aenq_handlers {
 
 /*****************************************************************************/
 /*****************************************************************************/
-#if defined(__cplusplus)
-extern "C" {
-#endif
-
+extern "C"{
 /* ena_com_mmio_reg_read_request_init - Init the mmio reg read mechanism
  * @ena_dev: ENA communication layer struct
  *
@@ -1266,7 +1263,5 @@ int ena_com_get_dev_extended_stats(struct ena_com_dev *ena_dev, char *buff,
 int ena_com_extended_stats_set_func_queue(struct ena_com_dev *ena_dev,
 					  u32 funct_queue);
 #endif
-#if defined(__cplusplus)
 }
-#endif /* __cplusplus */
 #endif /* !(ENA_COM) */

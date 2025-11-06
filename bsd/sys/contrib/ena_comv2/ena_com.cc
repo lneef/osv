@@ -31,7 +31,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "ena_com.h"
+#include "ena_com.hh"
 
 /*****************************************************************************/
 /*****************************************************************************/
@@ -96,7 +96,7 @@ enum ena_cmd_status {
 };
 
 struct ena_comp_ctx {
-	ena_wait_event_t wait_event;
+	struct ena_wait_event_t wait_event;
 	struct ena_admin_acq_entry *user_cqe;
 	u32 comp_size;
 	enum ena_cmd_status status;

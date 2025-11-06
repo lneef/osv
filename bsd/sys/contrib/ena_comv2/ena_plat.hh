@@ -33,7 +33,7 @@
 
 #ifndef ENA_PLAT_H_
 #define ENA_PLAT_H_
-#include <cstdint>
+#include "osv/waitqueue.hh"
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
@@ -197,6 +197,8 @@ static inline long PTR_ERR(const void *ptr)
 
 #include <osv/spinlock.h>
 #include <osv/irqlock.hh>
+#include <osv/mutex.h>
+#include <osv/condvar.h>
 /* Spinlock related methods */
 #define ena_spinlock_t 	np_spinlock_t
 #define mtx_initialized(spinlock) (1)
@@ -219,6 +221,24 @@ static inline long PTR_ERR(const void *ptr)
 		np_spin_unlock(&(spinlock));			\
 		irq_lock.unlock();				\
 	} while (0)
+
+struct ena_wait_event_t{ condvar wq; mutex_t mtx; };
+#define ENA_WAIT_EVENT_INIT(waitqueue)					\
+    new (&waitqueue) ()
+#define ENA_WAIT_EVENTS_DESTROY(admin_queue)				
+#define ENA_WAIT_EVENT_CLEAR(waitqueue)			\
+    new (&waitqueue) ()
+#define ENA_WAIT_EVENT_WAIT(waitqueue, timeout_us)			\
+	do {								\
+    sched::timer timer(*sched::thread::current()); \
+     timer.set(timeout_us * hz / 1000 / 1000); \
+    condvar_wait(&(waitqueue).wq, timer); \
+	} while (0)
+#define ENA_WAIT_EVENT_SIGNAL(waitqueue)\
+	do {						\
+    condvar_wake_all(&waitqueue.wq); \
+  } while (0)
+
 
 #define dma_addr_t 	bus_addr_t
 #define u8 		uint8_t
@@ -258,12 +278,11 @@ ena_reg_read32(ena_bus *bus, bus_size_t offset)
 	return v;
 }
 
-#define ENA_MEMCPY_TO_DEVICE_64(bus, dst, src, size)			\
+#define ENA_MEMCPY_TO_DEVICE_64(dst, src, size)				\
 	do {								\
 		int count, i;						\
 		volatile uint64_t *to = (volatile uint64_t *)(dst);	\
 		const uint64_t *from = (const uint64_t *)(src);		\
-		(void)(bus);						\
 		count = (size) / 8;					\
 									\
 		for (i = 0; i < count; i++, from++, to++)		\
@@ -272,41 +291,19 @@ ena_reg_read32(ena_bus *bus, bus_size_t offset)
 
 #define ENA_MEM_ALLOC(dmadev, size) malloc(size, M_DEVBUF, M_NOWAIT | M_ZERO)
 
-#if __FreeBSD_version > 1200055
-#define ENA_MEM_ALLOC_NODE(dmadev, size, virt, node, dev_node)		\
-	do {								\
-		(virt) = malloc_domainset((size), M_DEVBUF,		\
-		    (node) < 0 ? DOMAINSET_RR() : DOMAINSET_PREF(node),	\
-		    M_NOWAIT | M_ZERO);					\
-		(void)(dev_node);					\
-	} while (0)
-#else
 #define ENA_MEM_ALLOC_NODE(dmadev, size, virt, node, dev_node) (virt = NULL)
-#endif
 
 #define ENA_MEM_FREE(dmadev, ptr, size)					\
 	do { 								\
 		(void)(size);						\
 		free(ptr, M_DEVBUF);					\
 	} while (0)
-#if __FreeBSD_version > 1200055
-#define ENA_MEM_ALLOC_COHERENT_NODE_ALIGNED(dmadev, size, virt, phys,	\
-    dma, node, dev_node, alignment) 					\
-	do {								\
-		ena_dma_alloc((dmadev), (size), &(dma), 0, (alignment),	\
-		    (node));						\
-		(virt) = (void *)(dma).vaddr;				\
-		(phys) = (dma).paddr;					\
-		(void)(dev_node);					\
-	} while (0)
-#else
 #define ENA_MEM_ALLOC_COHERENT_NODE_ALIGNED(dmadev, size, virt, phys,	\
     dma, node, dev_node, alignment) 					\
 	do {								\
 		((virt) = NULL);					\
 		(void)(dev_node);					\
 	} while(0)
-#endif
 
 #define ENA_MEM_ALLOC_COHERENT_NODE(dmadev, size, virt, phys, handle,	\
     node, dev_node)							\
@@ -318,7 +315,7 @@ ena_reg_read32(ena_bus *bus, bus_size_t offset)
 	do {								\
 		ena_dma_alloc((dmadev), (size), &(dma), 0, (alignment),	\
 		    ENA_NODE_ANY);					\
-		(virt) = (void *)(dma).vaddr;				\
+		(virt) = reinterpret_cast<typeof(virt)>((dma).vaddr);	\
 		(phys) = (dma).paddr;					\
 	} while (0)
 

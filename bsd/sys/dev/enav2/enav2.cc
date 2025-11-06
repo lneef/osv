@@ -29,7 +29,6 @@
  */
 
 #include <cerrno>
-#include <cstdint>
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
@@ -182,7 +181,6 @@ ena_probe(pci::device* pdev)
 
 			return true;
 		}
-
 		ent++;
 	}
 
@@ -463,7 +461,6 @@ int
 ena_refill_rx_bufs(struct ena_ring *rx_ring, uint32_t num)
 {
 	struct ena_adapter *adapter = rx_ring->adapter;
-  auto* pdev = adapter->pdev;
 	uint16_t next_to_use, req_id;
 	uint32_t i;
 	int rc;
@@ -1345,7 +1342,7 @@ ena_attach(pci::device* pdev, ena_adapter **_adapter)
 	adapter->missing_tx_threshold = ENA_DEFAULT_TX_CMP_THRESHOLD;
 
 	if (version_printed++ == 0)
-		ena_log(pdev, INFO, "%s", "no");
+		ena_log(pdev, INFO, "%s", ena_version);
 
 	/* Allocate memory for ena_dev structure */
 	ena_dev = static_cast<ena_com_dev*>(malloc(sizeof(struct ena_com_dev), M_DEVBUF,
