@@ -708,9 +708,9 @@ ifeq ($(conf_networking_stack),1)
 ifeq ($(conf_drivers_ena),1)
 bsd += bsd/sys/contrib/ena_com/ena_eth_com.o
 bsd += bsd/sys/contrib/ena_com/ena_com.o
-bsd += bsd/sys/dev/ena/ena_datapath.o
-bsd += bsd/sys/dev/ena/ena.o
-$(out)/bsd/sys/dev/ena/%.o: CXXFLAGS += -Ibsd/sys/contrib
+bsd += bsd/sys/dev/enav2/ena_datapath.o
+bsd += bsd/sys/dev/enav2/enav2.o
+$(out)/bsd/sys/dev/enav2/%.o: CXXFLAGS += -Ibsd/sys/contrib
 endif
 endif
 endif
@@ -1163,7 +1163,9 @@ objects += core/osv_c_wrappers.o
 endif
 objects += core/options.o
 objects += core/string_utils.o
-
+objects += core/pktbuf.o
+objects += core/pbuf_alloc.o
+objects += core/net_eth.o
 #include $(src)/libc/build.mk:
 libc =
 libc_to_hide =

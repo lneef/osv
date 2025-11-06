@@ -1,7 +1,7 @@
 /*-
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Copyright (c) 2015-2021 Amazon.com, Inc. or its affiliates.
+ * Copyright (c) 2015-2023 Amazon.com, Inc. or its affiliates.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,7 @@
 
 #ifndef ENA_PLAT_H_
 #define ENA_PLAT_H_
-
+#include <cstdint>
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
@@ -44,14 +44,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/kthread.h>
 #include <sys/malloc.h>
-#include <sys/mbuf.h>
 #include <sys/module.h>
 #include <sys/rman.h>
 #include <sys/proc.h>
 #include <sys/smp.h>
-#include <bsd/sys/sys/socket.h>
 #include <sys/sysctl.h>
-#include <sys/taskqueue.h>
 #include <sys/eventhandler.h>
 #include <sys/types.h>
 #include <sys/cdefs.h>
@@ -63,27 +60,44 @@ __FBSDID("$FreeBSD$");
 #include <machine/resource.h>
 #include <machine/_inttypes.h>
 
-#include <bsd/sys/net/bpf.h>
 #include <bsd/sys/net/ethernet.h>
-#include <bsd/sys/net/if.h>
-#include <bsd/sys/net/if_var.h>
-#include <bsd/sys/net/if_arp.h>
-#include <bsd/sys/net/if_dl.h>
-#include <bsd/sys/net/if_media.h>
 
-#include <bsd/sys/net/if_types.h>
-#include <bsd/sys/net/if_vlan_var.h>
+enum ena_log_t {
+	ENA_ERR = 0,
+	ENA_WARN,
+	ENA_INFO,
+	ENA_DBG,
+};
 
-#include <bsd/sys/netinet/in_systm.h>
-#include <bsd/sys/netinet/in.h>
-#include <bsd/sys/netinet/if_ether.h>
-#include <bsd/sys/netinet/ip.h>
-//#include <bsd/sys/netinet/ip6.h>
-#include <bsd/sys/netinet/tcp.h>
-#include <bsd/sys/netinet/tcp_lro.h>
-#include <bsd/sys/netinet/udp.h>
+extern int ena_log_level;
 
-#include "ena_fbsd_log.h"
+#define ena_log(dev, level, fmt, args...)			\
+	do {							\
+		if (ENA_ ## level <= ena_log_level)		\
+			device_printf((dev), fmt, ##args);	\
+	} while (0)
+
+#define ena_log_raw(level, fmt, args...)			\
+	do {							\
+		if (ENA_ ## level <= ena_log_level)		\
+			printf(fmt, ##args);			\
+	} while (0)
+
+#define ena_log_unused(dev, level, fmt, args...)		\
+	do {							\
+		(void)(dev);					\
+	} while (0)
+
+#ifdef ENA_LOG_IO_ENABLE
+#define ena_log_io(dev, level, fmt, args...)			\
+	ena_log((dev), level, fmt, ##args)
+#else
+#define ena_log_io(dev, level, fmt, args...)			\
+	ena_log_unused((dev), level, fmt, ##args)
+#endif
+
+#define ena_log_nm(dev, level, fmt, args...)			\
+	ena_log((dev), level, "[nm] " fmt, ##args)
 
 extern struct ena_bus_space ebs;
 
@@ -228,24 +242,28 @@ typedef uint32_t ena_atomic32_t;
 #define ENA_PRIu64 PRIu64
 
 typedef uint64_t ena_time_t;
+typedef uint64_t ena_time_high_res_t;
 typedef struct ifnet ena_netdev;
 
+void	ena_dmamap_callback(void *arg, bus_dma_segment_t *segs, int nseg,
+    int error);
 int	ena_dma_alloc(device_t dmadev, bus_size_t size, ena_mem_handle_t *dma,
     int mapflags, bus_size_t alignment, int domain);
 
 static inline uint32_t
-ena_reg_read32(struct ena_bus *bus, bus_size_t offset)
+ena_reg_read32(ena_bus *bus, bus_size_t offset)
 {
 	uint32_t v = bus->reg_bar->readl(offset);
 	rmb();
 	return v;
 }
 
-#define ENA_MEMCPY_TO_DEVICE_64(dst, src, size)				\
+#define ENA_MEMCPY_TO_DEVICE_64(bus, dst, src, size)			\
 	do {								\
 		int count, i;						\
 		volatile uint64_t *to = (volatile uint64_t *)(dst);	\
 		const uint64_t *from = (const uint64_t *)(src);		\
+		(void)(bus);						\
 		count = (size) / 8;					\
 									\
 		for (i = 0; i < count; i++, from++, to++)		\
@@ -254,19 +272,41 @@ ena_reg_read32(struct ena_bus *bus, bus_size_t offset)
 
 #define ENA_MEM_ALLOC(dmadev, size) malloc(size, M_DEVBUF, M_NOWAIT | M_ZERO)
 
+#if __FreeBSD_version > 1200055
+#define ENA_MEM_ALLOC_NODE(dmadev, size, virt, node, dev_node)		\
+	do {								\
+		(virt) = malloc_domainset((size), M_DEVBUF,		\
+		    (node) < 0 ? DOMAINSET_RR() : DOMAINSET_PREF(node),	\
+		    M_NOWAIT | M_ZERO);					\
+		(void)(dev_node);					\
+	} while (0)
+#else
 #define ENA_MEM_ALLOC_NODE(dmadev, size, virt, node, dev_node) (virt = NULL)
+#endif
 
 #define ENA_MEM_FREE(dmadev, ptr, size)					\
 	do { 								\
 		(void)(size);						\
 		free(ptr, M_DEVBUF);					\
 	} while (0)
+#if __FreeBSD_version > 1200055
+#define ENA_MEM_ALLOC_COHERENT_NODE_ALIGNED(dmadev, size, virt, phys,	\
+    dma, node, dev_node, alignment) 					\
+	do {								\
+		ena_dma_alloc((dmadev), (size), &(dma), 0, (alignment),	\
+		    (node));						\
+		(virt) = (void *)(dma).vaddr;				\
+		(phys) = (dma).paddr;					\
+		(void)(dev_node);					\
+	} while (0)
+#else
 #define ENA_MEM_ALLOC_COHERENT_NODE_ALIGNED(dmadev, size, virt, phys,	\
     dma, node, dev_node, alignment) 					\
 	do {								\
 		((virt) = NULL);					\
 		(void)(dev_node);					\
 	} while(0)
+#endif
 
 #define ENA_MEM_ALLOC_COHERENT_NODE(dmadev, size, virt, phys, handle,	\
     node, dev_node)							\
@@ -278,7 +318,7 @@ ena_reg_read32(struct ena_bus *bus, bus_size_t offset)
 	do {								\
 		ena_dma_alloc((dmadev), (size), &(dma), 0, (alignment),	\
 		    ENA_NODE_ANY);					\
-		(virt) = reinterpret_cast<typeof(virt)>((dma).vaddr);	\
+		(virt) = (void *)(dma).vaddr;				\
 		(phys) = (dma).paddr;					\
 	} while (0)
 
@@ -358,6 +398,16 @@ void	ena_rss_key_fill(void *key, size_t size);
 
 #define ENA_RSS_FILL_KEY(key, size) ena_rss_key_fill(key, size)
 
+#define ENA_FIELD_GET(value, mask, offset) ((value & mask) >> offset)
+
 #include "ena_defs/ena_includes.h"
+
+static inline constexpr uint8_t bitcount64(uint64_t bitmap){
+    return __builtin_popcountll(bitmap);
+}
+
+#define ENA_BITS_PER_U64(bitmap) (bitcount64(bitmap))
+
+#define ENA_ADMIN_OS_FREEBSD 4
 
 #endif /* ENA_PLAT_H_ */
