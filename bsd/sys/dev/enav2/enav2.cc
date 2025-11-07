@@ -638,7 +638,7 @@ ena_enable_msix(ena_adapter *adapter)
 	assert(dev->is_msix());
   ena_log(dev, DBG, "%u\n", dev->msix_get_num_entries());
 
-	if (msix_vecs != dev->msix_get_num_entries()) {
+	if (msix_vecs > dev->msix_get_num_entries()) {
 		if (msix_vecs == ENA_ADMIN_MSIX_VEC) {
 			ena_log(dev, ERR,
 			    "Not enough number of MSI-x allocated: %d",
