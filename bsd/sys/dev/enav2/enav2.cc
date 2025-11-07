@@ -28,6 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "ena_com/ena_defs/ena_admin_defs.h"
 #include <cerrno>
 __FBSDID("$FreeBSD$");
 
@@ -1777,6 +1778,7 @@ ena_create_io_queue(ena_eth_dev *data, ena_ring *ring)
   }else{
       ena_qid = ENA_IO_RXQ_IDX(ring->qid);
       ctx.direction = ENA_COM_IO_QUEUE_DIRECTION_RX;
+      ctx.mem_queue_type = ENA_ADMIN_PLACEMENT_POLICY_HOST;
       for(i = 0; i < ring->ring_size; ++i)
           ring->free_rx_ids[i] = i;
   }
