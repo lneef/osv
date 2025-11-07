@@ -81,10 +81,10 @@ static void do_pong(port_config &pconf){
     auto end = cycles + pconf.rt * 1e9;
     for(; get_ns() < end; ){
         nb_rx = pconf.dev->retrieve_pkts_burst(0, rpkts.data(), burst_size - nb_rm); 
-        for(uint16_t i = 0; i < nb_rx ; ++i, ++nb_rm){
+        for(uint16_t i = 0; i < nb_rx ; ++i){
             pkts[nb_rm] = rpkts[i];
-            if(receive_packets(pkts[nb_rm]))
-                --nb_rm;
+            if(!receive_packets(pkts[nb_rm]))
+                ++nb_rm;
         }
         nb_tx = pconf.dev->submit_pkts_burst(0, pkts.data(), nb_rm);
         for(uint16_t j = 0, i = nb_tx; i < nb_rm; ++i, ++j)
