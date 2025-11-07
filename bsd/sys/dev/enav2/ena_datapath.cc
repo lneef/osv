@@ -324,7 +324,6 @@ static uint16_t ena_rx_recv(struct ena_ring *rx_ring, pkt_buf** pkts, uint16_t n
   next_to_clean = rx_ring->next_to_clean;
   descs_in_use = rx_ring->ring_size - ena_com_free_q_entries(rx_ring->ena_com_io_sq) - 1;
   nb_pkts = min_t(uint16_t, nb_pkts, descs_in_use); 
-  ena_log_io(adapter->pdev, INFO, "rx: qid %d", qid);
   for(completed = 0; completed < nb_pkts; ++completed){
     ena_rx_ctx.ena_bufs = rx_ring->ena_bufs;
     ena_rx_ctx.max_bufs = adapter->max_rx_sgl_size;
@@ -347,7 +346,7 @@ static uint16_t ena_rx_recv(struct ena_ring *rx_ring, pkt_buf** pkts, uint16_t n
     if (unlikely(ena_rx_ctx.descs == 0))
       break;
 
-    ena_log_io(adapter->pdev, DBG,
+    ena_log_io(adapter->pdev, INFO,
                "rx: q %d got packet from ena. descs #: %d l3 proto %d l4 proto "
                "%d hash: %x",
                rx_ring->qid, ena_rx_ctx.descs, ena_rx_ctx.l3_proto,
@@ -363,11 +362,12 @@ static uint16_t ena_rx_recv(struct ena_ring *rx_ring, pkt_buf** pkts, uint16_t n
       }
       break;
     }
+    ena_prepare_rx_pbuf(rx_ring, pbuf, ena_rx_ctx);
+    pkts[completed] = pbuf;
     
   } 
 
   rx_ring->next_to_clean = next_to_clean;
-
   refill_required = ena_com_free_q_entries(io_sq);
   refill_threshold =
       min_t(int, rx_ring->ring_size / ENA_RX_REFILL_THRESH_DIVIDER,
