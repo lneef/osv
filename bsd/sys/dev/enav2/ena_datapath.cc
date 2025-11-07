@@ -362,7 +362,7 @@ static uint16_t ena_rx_recv(struct ena_ring *rx_ring, pkt_buf** pkts, uint16_t n
       }
       break;
     }
-    ena_prepare_rx_pbuf(rx_ring, pbuf, ena_rx_ctx);
+    ena_prepare_rx_pbuf(rx_ring, pbuf, &ena_rx_ctx);
     pkts[completed] = pbuf;
     
   } 
