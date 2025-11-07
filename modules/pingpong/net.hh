@@ -101,7 +101,7 @@ static inline uint16_t
      return (uint16_t)sum;
  }
 
-static inline uint16_t phdr_cksum(ipv4_header* ipv4, udp_header* udp){
+inline uint16_t phdr_cksum(ipv4_header* ipv4, udp_header* udp){
     struct ipv4_psd_header {
          uint32_t src_addr; /* IP address of source host. */
          uint32_t dst_addr; /* IP address of destination host. */

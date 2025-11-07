@@ -240,7 +240,7 @@ static struct pkt_buf *ena_rx_mbuf(struct ena_ring *rx_ring,
   }
 
   ena_log_io(adapter->pdev, DBG, "rx_info %p, mbuf %p, paddr %jx", rx_info,
-             rx_info->mbuf, (uintmax_t)rx_info->ena_buf.paddr);
+             rx_info->pbuf, (uintmax_t)rx_info->ena_buf.paddr);
   pbuf = rx_info->pbuf;
   pbuf_head = pbuf;
   pbuf_head->nb_segs = descs;
@@ -250,8 +250,8 @@ static struct pkt_buf *ena_rx_mbuf(struct ena_ring *rx_ring,
   ntc = ENA_RX_RING_IDX_NEXT(ntc, rx_ring->ring_size);
   ena_log_io(adapter->pdev, DBG, "Mbuf data offset=%u", ena_rx_ctx->pkt_offset);
 
-  ena_log_io(adapter->pdev, DBG, "rx mbuf 0x%p, flags=0x%x, len: %d", mbuf,
-             mbuf->m_hdr.mh_flags, mbuf->M_dat.MH.MH_pkthdr.len);
+  ena_log_io(adapter->pdev, DBG, "rx mbuf 0x%p, flags=0x%x, len: %d", pbuf,
+             pbuf->olflags, pbuf->pkt_len);
 
   /*
    * While we have more than 1 descriptors for one rcvd packet, append

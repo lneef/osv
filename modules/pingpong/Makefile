@@ -1,16 +1,15 @@
 include ../common.gmk
 
 CXXFLAGS=-O2 -g -Wall -std=c++11 -fPIC $(COMMON) 
-SRCS=ping.cc
+SRCS=pong.cc
 
 .PHONY: module
-module: ping.so
+module: pong.so
 
 quiet = $(if $V, $1, @echo " $2"; $1)
 
-ping.so: $(SRCS)
+pong.so: $(SRCS)
 	$(call quiet, $(CXX) $(CXXFLAGS) -shared -o $@ $(SRCS), LINK $@)
 
 clean:
-	rm -f sysinfo.so sysinfo.d
-
+	rm -f pong.so pong.d

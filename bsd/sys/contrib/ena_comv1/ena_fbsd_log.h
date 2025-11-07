@@ -43,6 +43,9 @@ enum ena_log_t {
 
 extern int ena_log_level;
 
+#define ENA_LOG_ENABLE
+#define ENA_LOG_IO_ENABLE 
+
 #define ena_log_unused(dev, level, fmt, args...)		\
 	do {							\
 	} while (0)
