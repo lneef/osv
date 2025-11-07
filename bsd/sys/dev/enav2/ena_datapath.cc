@@ -27,6 +27,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include "ena_comv1/ena_fbsd_log.h"
 __FBSDID("$FreeBSD$");
 #include "osv/mmu.hh"
 #include "osv/virt_to_phys.hh"
@@ -389,6 +390,7 @@ static void ena_tx_map_mbuf(struct ena_ring *tx_ring,
 
   tx_info->pbuf = pbuf;
   ena_buf = tx_info->bufs;
+  tx_info->num_of_bufs = 0;
 
   if (tx_ring->tx_mem_queue_type == ENA_ADMIN_PLACEMENT_POLICY_DEV) {
     push_len = std::min<uint32_t>(pbuf->pkt_len, tx_ring->tx_max_header_size);
@@ -471,7 +473,8 @@ static int ena_xmit_mbuf(struct ena_ring *tx_ring, struct pkt_buf *pbuf) {
   ena_tx_ctx.num_bufs = tx_info->num_of_bufs;
   ena_tx_ctx.req_id = req_id;
   ena_tx_ctx.header_len = header_len;
-
+  ena_tx_ctx.tso_enable = 0;
+  ena_log_io(adapter->pdev, INFO, "Sending pkt with len %u with %u desc", pbuf->pkt_len, ena_tx_ctx.num_bufs);
   /* Set Tx offloads flags, if applicable */
   ena_tx_pbuf_prepare(pbuf, &ena_tx_ctx);
 
@@ -479,6 +482,7 @@ static int ena_xmit_mbuf(struct ena_ring *tx_ring, struct pkt_buf *pbuf) {
           ena_com_is_doorbell_needed(tx_ring->ena_com_io_sq, &ena_tx_ctx))) {
     ena_ring_tx_doorbell(tx_ring);
     tx_ring->tx_stats.doorbells++;
+    tx_ring->pkts_without_db = false;
   }
 
   /* prepare the packet's descriptors to dma engine */
