@@ -32,6 +32,7 @@
  */
 
 #include "ena_com.h"
+#include <contrib/ena_comv1/ena_fbsd_log.h>
 #include <sys/mutex.h>
 #include <sys/cddl/compat/opensolaris/sys/kcondvar.h>
 
@@ -1913,8 +1914,10 @@ int ena_com_create_io_queue(struct ena_com_dev *ena_dev,
 			ENA_MIN32(ena_dev->tx_max_header_size, SZ_256);
 
 	ret = ena_com_init_io_sq(ena_dev, ctx, io_sq);
-	if (ret)
+	if (ret){
+    ena_log(ena_dev, ERR, "Could not init submission queue");  
 		goto error;
+  }
 	ret = ena_com_init_io_cq(ena_dev, ctx, io_cq);
 	if (ret)
 		goto error;

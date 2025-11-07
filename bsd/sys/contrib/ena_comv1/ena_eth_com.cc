@@ -661,8 +661,9 @@ int ena_com_add_single_rx_desc(struct ena_com_io_sq *io_sq,
 		     (io_sq->phase & ENA_ETH_IO_RX_DESC_PHASE_MASK);
 
 	desc->req_id = req_id;
+  auto* dev = ena_com_io_sq_to_ena_dev(io_sq);
 
-	ena_trc_dbg(ena_com_io_sq_to_ena_dev(io_sq),
+	ena_trc_dbg(dev,
 		    "[%s] Adding single RX desc, Queue: %u, req_id: %u\n",
 		    __func__, io_sq->qid, req_id);
 
