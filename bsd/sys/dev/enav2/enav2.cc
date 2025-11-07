@@ -72,7 +72,7 @@ __FBSDID("$FreeBSD$");
 #include <osv/trace.hh>
 
 
-int ena_log_level = ENA_INFO;
+int ena_log_level = ENA_DBG;
 
 static inline void critical_enter()  { sched::preempt_disable(); }
 static inline void critical_exit() { sched::preempt_enable(); }
@@ -636,6 +636,7 @@ ena_enable_msix(ena_adapter *adapter)
 	dev->set_bus_master(true);
 	dev->msix_enable();
 	assert(dev->is_msix());
+  ena_log(dev, DBG, "%u\n", dev->msix_get_num_entries());
 
 	if (msix_vecs != dev->msix_get_num_entries()) {
 		if (msix_vecs == ENA_ADMIN_MSIX_VEC) {
