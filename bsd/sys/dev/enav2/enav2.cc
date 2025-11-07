@@ -28,7 +28,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "ena_com/ena_defs/ena_admin_defs.h"
 #include <cerrno>
 __FBSDID("$FreeBSD$");
 
