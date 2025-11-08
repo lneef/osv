@@ -27,7 +27,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include "ena_com/ena_defs/ena_eth_io_defs.h"
 #include "ena_comv1/ena_fbsd_log.h"
 __FBSDID("$FreeBSD$");
 #include "osv/mmu.hh"
