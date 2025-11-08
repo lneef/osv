@@ -68,6 +68,10 @@ static int receive_packets(pkt_buf* pkt){
     pkt->l4_len = sizeof(*udp);
     pkt->olflags = PBUF_OFFLOAD_UDP_CKSUM | PBUF_OFFLOAD_IPV4_CKSUM;
     udp->dgram_cksum = phdr_cksum(ipv4, udp);
+    for(auto i = 0; i < pkt->data_len; ++i){
+        printf("%02x", pkt->buf[i]);
+    }
+    printf("\n");
     return 0;
 }
 
