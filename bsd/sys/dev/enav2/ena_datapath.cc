@@ -417,7 +417,7 @@ static void ena_tx_map_mbuf(struct ena_ring *tx_ring,
     tx_info->num_of_bufs++;
   }
 
-  while ((pbuf = pbuf->next) != nullptr) {
+  while (pbuf!= nullptr) {
     seg_len = pbuf->data_len;
 
     /* Skip mbufs if whole data is pushed as a header */
@@ -432,6 +432,7 @@ static void ena_tx_map_mbuf(struct ena_ring *tx_ring,
     tx_info->num_of_bufs++;
 
     delta = 0;
+    pbuf = pbuf->next;
   }
 }
 
