@@ -27,6 +27,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include "ena_com/ena_defs/ena_eth_io_defs.h"
 #include "ena_comv1/ena_fbsd_log.h"
 __FBSDID("$FreeBSD$");
 #include "osv/mmu.hh"
@@ -104,6 +105,7 @@ static inline void ena_tx_pbuf_prepare(struct pkt_buf* pbuf, struct ena_com_tx_c
     struct ena_com_tx_meta* ena_meta = &ena_tx_ctx->ena_meta;
     if(pbuf->olflags != PBUF_OFFLOAD_NONE){
         ena_tx_ctx->l3_csum_enable = pbuf->olflags & PBUF_OFFLOAD_IPV4_CKSUM;
+        ena_tx_ctx->l3_proto = ENA_ETH_IO_L3_PROTO_IPV4;
         if(pbuf->olflags & PBUF_OFFLOAD_IPV4_CKSUM){
             ena_tx_ctx->l4_csum_enable = true;
             ena_tx_ctx->l4_proto = ENA_ETH_IO_L4_PROTO_UDP;
@@ -475,7 +477,7 @@ static int ena_xmit_mbuf(struct ena_ring *tx_ring, struct pkt_buf *pbuf) {
   ena_tx_ctx.req_id = req_id;
   ena_tx_ctx.header_len = header_len;
   ena_tx_ctx.tso_enable = 0;
-  ena_log_io(adapter->pdev, INFO, "Sending pkt with len %u with %u desc", pbuf->pkt_len, ena_tx_ctx.num_bufs);
+  ena_log_io(adapter->pdev, INFO, "Sending pkt with len %u with %u desc", tx_info->bufs[0].len, ena_tx_ctx.num_bufs);
   /* Set Tx offloads flags, if applicable */
   ena_tx_pbuf_prepare(pbuf, &ena_tx_ctx);
 
