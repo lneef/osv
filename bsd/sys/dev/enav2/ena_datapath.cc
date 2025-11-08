@@ -88,9 +88,9 @@ static inline void ena_prepare_rx_pbuf(struct ena_ring* rx_ring, struct pkt_buf*
     if((packet_type & (ENA_ETH_IO_L4_PROTO_UDP)) && !ena_rx_ctx->frag){
         if(ena_rx_ctx->l4_csum_checked){
             if(unlikely(ena_rx_ctx->l4_csum_err))
-                o_flags |= PBUF_CKSUM_L4_OK;
-            else
                 o_flags |= PBUF_CKSUM_L4_BAD;
+            else
+                o_flags |= PBUF_CKSUM_L4_OK;
         }else{
             o_flags |= PBUF_CKSUM_L4_UNKONW;
 
@@ -399,7 +399,6 @@ static void ena_tx_map_mbuf(struct ena_ring *tx_ring,
     if (push_len <= seg_len) {
       *push_header = pbuf->buf;
     } else {
-      // TODO make sure this is valid
       pbuf->copy_data(push_len, tx_ring->push_buf_intermediate_buf);
       *push_header = tx_ring->push_buf_intermediate_buf;
       delta = push_len - seg_len;
