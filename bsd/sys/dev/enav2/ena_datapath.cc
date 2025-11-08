@@ -246,6 +246,7 @@ static struct pkt_buf *ena_rx_mbuf(struct ena_ring *rx_ring,
   pbuf_head = pbuf;
   pbuf_head->nb_segs = descs;
   pbuf_head->pkt_len = len;
+  pbuf_head->data_len = len;
   rx_info->pbuf = nullptr;
   rx_ring->free_rx_ids[ntc] = req_id;
   ntc = ENA_RX_RING_IDX_NEXT(ntc, rx_ring->ring_size);
@@ -280,8 +281,9 @@ static struct pkt_buf *ena_rx_mbuf(struct ena_ring *rx_ring,
       return (NULL);
     }else{
         pbuf->next = rx_info->pbuf;
+        rx_info->pbuf->data_len = len;
         pbuf = pbuf->next;
-        pbuf_head->pkt_len += rx_info->pbuf->pkt_len; 
+        pbuf_head->pkt_len += len; 
     }
 
     ena_log_io(adapter->pdev, INFO, "rx pbuf updated. len %d",
