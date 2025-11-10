@@ -9,9 +9,9 @@
 /*
  * Uses just malloc for now 
  */
+static constexpr uint32_t cl_size = 64;
 
-
-static int	mb_ctor_buf(void * mem, int, void *arg, int){
+static int mb_ctor_buf(void * mem, int, void *arg, int){
     pkt_buf* pbuf = static_cast<pkt_buf*>(mem);
     pbuf_pool* pool = static_cast<pbuf_pool*>(arg);
     *pbuf  = {};
@@ -21,7 +21,6 @@ static int	mb_ctor_buf(void * mem, int, void *arg, int){
     return 0;
 }
 
-
 pbuf_pool::pbuf_pool(const char* name, uint32_t size, uint32_t elems, uint32_t flags): data_size(size){
     (void)name;
     (void)elems;
@@ -29,8 +28,7 @@ pbuf_pool::pbuf_pool(const char* name, uint32_t size, uint32_t elems, uint32_t f
 }
 
 
-pbuf_pool::~pbuf_pool(){
-}
+pbuf_pool::~pbuf_pool() = default;
 
 
 pbuf_pool* pbuf_pool::bpuf_pool_create(const char *name, uint32_t size, uint32_t flags = 0){
@@ -47,9 +45,9 @@ void pbuf_pool::pbuf_pool_delete(pbuf_pool *pb_pool){
 
 
 int pbuf_pool::alloc_bulk(struct pkt_buf** pkts, uint16_t nb){
-    uint16_t i = 0;
+    uint16_t i = pool.cpu_cache.get(pkts, nb);
     for(; i < nb; ++i){
-        pkts[i] = static_cast<pkt_buf*>(malloc(sizeof(pkt_buf) + data_size));
+        pkts[i] = static_cast<pkt_buf*>(aligned_alloc(cl_size, data_size + sizeof(pkt_buf)));
         if(!pkts[i])
             break;
     }
@@ -63,14 +61,9 @@ int pbuf_pool::alloc_bulk(struct pkt_buf** pkts, uint16_t nb){
 
 }
 
-
+/* add freeing chains of buffer */
 void pbuf_pool::free_bulk(struct pkt_buf** pkts, uint16_t nb){
-    for(uint16_t i = 0; i < nb; ++i){
-        pkt_buf* pbuf = pkts[i];
-        for(; pbuf;){
-            pkt_buf* del = pbuf;
-            pbuf = pbuf->next;
-            free(del);
-        }
-    }
+    uint32_t i = pool.cpu_cache.add(pkts, nb);
+    for(; i < nb; ++i)
+        free(pkts[i]);
 }
