@@ -12,6 +12,7 @@
 #include "osv/aligned_new.hh"
 #include "osv/mmu-defs.hh"
 #include "osv/msi.hh"
+#include "osv/osv_c_wrappers.h"
 #include "osv/virt_to_phys.hh"
 
 #include <api/bypass/mem.hh>
@@ -28,6 +29,7 @@
 #include <cstring>
 #include <dev/enav2/base/ena_plat.h>
 #include <drivers/pci-device.hh>
+#include <machine/param.h>
 
 
 #define DRV_MODULE_VER_MAJOR	2
@@ -547,20 +549,18 @@ static void ena_config_host_info(struct ena_com_dev *ena_dev)
 	}
 
 	host_info = ena_dev->host_attr.host_info;
-/*
-	host_info->os_type = ENA_ADMIN_OS_DPDK;
-	host_info->kernel_ver = RTE_VERSION;
-	strlcpy((char *)host_info->kernel_ver_str, rte_version(),
+  host_info->os_type = ENA_ADMIN_OS_DPDK;
+	host_info->kernel_ver = BSD;
+	strlcpy((char *)host_info->kernel_ver_str, osv_version(),
 		sizeof(host_info->kernel_ver_str));
-	host_info->os_dist = RTE_VERSION;
-	strlcpy((char *)host_info->os_dist_str, rte_version(),
+	strlcpy((char *)host_info->os_dist_str, osv_version(),
 		sizeof(host_info->os_dist_str));
 	host_info->driver_version =
 		(DRV_MODULE_VER_MAJOR) |
 		(DRV_MODULE_VER_MINOR << ENA_ADMIN_HOST_INFO_MINOR_SHIFT) |
 		(DRV_MODULE_VER_SUBMINOR <<
 			ENA_ADMIN_HOST_INFO_SUB_MINOR_SHIFT);
-	host_info->num_cpus = rte_lcore_count();
+	host_info->num_cpus = 1;
 
 	host_info->driver_supported_features =
 		ENA_ADMIN_HOST_INFO_RX_OFFSET_MASK |
@@ -569,17 +569,15 @@ static void ena_config_host_info(struct ena_com_dev *ena_dev)
 	rc = ena_com_set_host_attributes(ena_dev);
 	if (rc) {
 		if (rc == ENA_COM_UNSUPPORTED)
-			ena_log_raw(WARNING, "Cannot set host attributes");
+			ena_log_raw(WARN, "Cannot set host attributes");
 		else
 			ena_log_raw(ERR, "Cannot set host attributes");
 
 		goto err;
 	}
-  */
-
 	return;
 
-//err:
+err:
 	ena_com_delete_host_info(ena_dev);
 }
 
@@ -855,7 +853,7 @@ static int ena_stats_get(struct rte_eth_dev *dev,
 			  rte_eth_stats *stats)
 {
 	ena_admin_basic_stats ena_stats;
-	struct ena_adapter *adapter = dev->data->dev_private;
+	struct ena_adapter *adapter = dev->get<ena_adapter>();
 	struct ena_com_dev *ena_dev = &adapter->ena_dev;
 	int rc;
 	int i;
@@ -885,7 +883,7 @@ static int ena_stats_get(struct rte_eth_dev *dev,
 	stats->oerrors = rte_atomic64_read(&adapter->drv_stats->oerrors);
 	stats->rx_nombuf = rte_atomic64_read(&adapter->drv_stats->rx_nombuf);
 
-	max_rings_stats = RTE_MIN(dev->data->nb_rx_queues,
+	max_rings_stats = RTE_MIN(dev->data.nb_rx_queues,
 		RTE_ETHDEV_QUEUE_STAT_CNTRS);
 	for (i = 0; i < max_rings_stats; ++i) {
 		struct ena_stats_rx *rx_stats = &adapter->rx_ring[i].rx_stats;
@@ -898,7 +896,7 @@ static int ena_stats_get(struct rte_eth_dev *dev,
 			rx_stats->unknown_error;
 	}
 
-	max_rings_stats = RTE_MIN(dev->data->nb_tx_queues,
+	max_rings_stats = RTE_MIN(dev->data.nb_tx_queues,
 		RTE_ETHDEV_QUEUE_STAT_CNTRS);
 	for (i = 0; i < max_rings_stats; ++i) {
 		struct ena_stats_tx *tx_stats = &adapter->tx_ring[i].tx_stats;
@@ -1589,29 +1587,11 @@ static uint64_t ena_get_tx_queue_offloads(struct ena_adapter *adapter)
 	return queue_offloads;
 }
 
-[[maybe_unused]] static int ena_infos_get(struct rte_eth_dev *dev,
-			  struct rte_eth_dev_info *dev_info)
+static int ena_infos_get(rte_eth_dev *dev,
+			  rte_eth_dev_info *dev_info)
 {
 
-/*
-	ena_assert_msg(dev->data != NULL, "Uninitialized device\n");
-	ena_assert_msg(dev->data->dev_private != NULL, "Uninitialized device\n");
-	adapter = dev->data->dev_private;
-
-	ena_dev = &adapter->ena_dev;
-	ena_assert_msg(ena_dev != NULL, "Uninitialized device\n");
-
-	dev_info->speed_capa =
-			RTE_ETH_LINK_SPEED_1G   |
-			RTE_ETH_LINK_SPEED_2_5G |
-			RTE_ETH_LINK_SPEED_5G   |
-			RTE_ETH_LINK_SPEED_10G  |
-			RTE_ETH_LINK_SPEED_25G  |
-			RTE_ETH_LINK_SPEED_40G  |
-			RTE_ETH_LINK_SPEED_50G  |
-			RTE_ETH_LINK_SPEED_100G |
-			RTE_ETH_LINK_SPEED_200G |
-			RTE_ETH_LINK_SPEED_400G;
+	auto *adapter = dev->get<ena_adapter>();
 
 	dev_info->rx_offload_capa = ena_get_rx_port_offloads(adapter);
 	dev_info->tx_offload_capa = ena_get_tx_port_offloads(adapter);
@@ -1650,9 +1630,6 @@ static uint64_t ena_get_tx_queue_offloads(struct ena_adapter *adapter)
 							 dev_info->rx_desc_lim.nb_max);
 	dev_info->default_txportconf.ring_size = RTE_MIN(ENA_DEFAULT_RING_SIZE,
 							 dev_info->tx_desc_lim.nb_max);
-
-	dev_info->err_handle_mode = RTE_ETH_ERROR_HANDLE_MODE_PASSIVE;
-  */
 
 	return 0;
 }
@@ -2124,7 +2101,7 @@ int ena_eth_dev::tx_queue_setup(uint16_t queue_idx,
 			adapter->max_tx_ring_size);
 		return -EINVAL;
 	}
-
+  
 	txq->port_id = data.port_id;
 	txq->next_to_clean = 0;
 	txq->next_to_use = 0;
@@ -2529,7 +2506,6 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter){
 	struct ena_calc_queue_size_ctx calc_queue_ctx = { 0 };
   struct ena_llq_configurations llq_config;
 	struct ena_com_dev *ena_dev;
-  static int instance = 0;
   ena_eth_dev* edev;
 	uint32_t max_num_io_queues;
 	int rc;
@@ -2544,7 +2520,7 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter){
   new (adapter->edev) ena_eth_dev();
   rte_timer_init(&adapter->timer_wd);
 
-  ports.register_port(instance++, adapter->edev);
+  eth_os::register_port(adapter->edev);
   const char *queue_type_str;
 	static int adapters_found;
 	bool disable_meta_caching;
@@ -2878,19 +2854,7 @@ static bool ena_use_large_llq_hdr(struct ena_adapter *adapter, uint8_t recommend
 	return false;
 }
 
-uint64_t ena_eth_dev::tx_queue_offloads() {
-    return ena_get_tx_queue_offloads(get<ena_adapter>());
+int ena_eth_dev::get_dev_info(rte_eth_dev_info *info) {
+    return ena_infos_get(this, info);
 }
-uint64_t ena_eth_dev::rx_queue_offloads() {
-    return ena_get_rx_queue_offloads(get<ena_adapter>());
-}
-
-uint64_t ena_eth_dev::tx_port_offloads() {
-    return ena_get_tx_port_offloads(get<ena_adapter>());
-}
-
-uint64_t ena_eth_dev::rx_port_offloads() {
-    return ena_get_rx_port_offloads(get<ena_adapter>());
-}
-
 

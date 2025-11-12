@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
-#include <api/bypass/pktbuf.hh>
+#include <api/bypass/mem.hh>
 #include <endian.h>
 #include <netinet/ip.h>
 #include <string>
@@ -120,7 +120,7 @@ inline uint16_t phdr_cksum(ipv4_header* ipv4, udp_header* udp){
 }
 
 
-static void create_packet(const app_config& config, pkt_buf *pkt){
+static void create_packet(const app_config& config, rte_mbuf *pkt){
     uint16_t len = config.data_len;
     eth_header *eth = reinterpret_cast<eth_header*>(pkt->buf);
     ipv4_header *ipv4 = reinterpret_cast<ipv4_header*>(eth + 1);
@@ -156,10 +156,10 @@ static void create_packet(const app_config& config, pkt_buf *pkt){
     ipv4->hdr_checksum = 0;
     udp->dgram_cksum = phdr_cksum(ipv4, udp);
     pkt->nb_segs = 1;
-    pkt->olflags = PBUF_OFFLOAD_IPV4_CKSUM | PBUF_OFFLOAD_UDP_CKSUM;
+    pkt->ol_flags = RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_UDP_CKSUM | RTE_MBUF_F_TX_IPV4;
 }
 
-static bool verify_packet(const pkt_buf* pkt){
-    return (pkt->olflags & PBUF_CKSUM_L4_OK) && (pkt->olflags & PBUF_CKSUM_L3_OK);
+static bool verify_packet(const rte_mbuf* pkt){
+    return (pkt->ol_flags & RTE_MBUF_F_RX_IP_CKSUM_GOOD) && (pkt->ol_flags & RTE_MBUF_F_RX_L4_CKSUM_GOOD);
 }
 #endif // !HEADERS_H

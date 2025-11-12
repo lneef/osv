@@ -19,10 +19,6 @@ public:
             rte_mempool *mp) override;
     uint16_t tx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) override;
     uint16_t rx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) override;
-    uint64_t tx_queue_offloads() override;
-    uint64_t rx_queue_offloads() override;
-    uint64_t tx_port_offloads() override;
-    uint64_t rx_port_offloads() override;
-
+    int get_dev_info(rte_eth_dev_info *info) override; 
 };
 #endif // !ENA_IF_H_

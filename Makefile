@@ -1166,6 +1166,7 @@ objects += core/string_utils.o
 objects += core/mem.o
 objects += core/time.o
 objects += core/net_eth.o
+objects += core/dev.o
 #include $(src)/libc/build.mk:
 libc =
 libc_to_hide =

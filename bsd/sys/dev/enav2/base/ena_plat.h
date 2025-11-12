@@ -178,12 +178,6 @@ extern int ena_log_level;
 
 #define ena_log_nm(dev, level, fmt, args...)			\
 	ena_log((dev), level, "[nm] " fmt, ##args)
-#define ena_trc_log(dev, level, fmt, arg...)				       \
-	(								       \
-		ENA_TOUCH(dev),				                     \
-		rte_log(RTE_LOG_ ## level, ena_logtype_com,		       \
-			"[ENA_COM: %s]" fmt, __func__, ##arg)		       \
-	)
 
 #define ENA_WARN(cond, dev, format, arg...)				       \
 	do {								       \

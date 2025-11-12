@@ -3,6 +3,7 @@
 #include <api/bypass/rss.hh>
 #include <bypass/net.hh>
 #include <cstdint>
+#include <vector>
 #include <atomic>
 #include "api/bypass/mem.hh"
 
@@ -10,15 +11,18 @@
 
 struct rte_eth_dev;
 struct eth_os{
-    struct {
-        int configured;
-        rte_eth_dev* dev;
-    }ports_info[MAX_ETH_PORTS];
-
-    void register_port(uint16_t port, rte_eth_dev* dev);
+    std::vector<rte_eth_dev*> ifs;
+    static eth_os instance; 
+    static rte_eth_dev* get_eth_for_port(uint16_t port);
+    static void register_port(rte_eth_dev* dev);
 };
 
 extern eth_os ports;
+
+#define RTE_ETHER_CRC_LEN 4
+#define RTE_ETHER_HDR_LEN 14
+#define RTE_ETHDEV_QUEUE_STAT_CNTRS 16
+
 enum queue_state{
     RTE_ETH_QUEUE_STATE_STOPPED = 0,
     RTE_ETH_QUEUE_STATE_STARTED
@@ -55,7 +59,12 @@ struct rte_eth_stats {
     std::atomic<uint64_t>  imissed;
     std::atomic<uint64_t> ierrors;   
     std::atomic<uint64_t> oerrors;   
-    std::atomic<uint64_t> rx_nombuf; 
+    std::atomic<uint64_t> rx_nombuf;
+    uint64_t q_ipackets[RTE_ETHDEV_QUEUE_STAT_CNTRS];
+    uint64_t q_opackets[RTE_ETHDEV_QUEUE_STAT_CNTRS];
+    uint64_t q_ibytes[RTE_ETHDEV_QUEUE_STAT_CNTRS];
+    uint64_t q_obytes[RTE_ETHDEV_QUEUE_STAT_CNTRS];
+    uint64_t q_errors[RTE_ETHDEV_QUEUE_STAT_CNTRS];
 };
 
 struct rte_eth_txconf{
@@ -68,13 +77,53 @@ struct rte_eth_rxconf{
         uint64_t offloads;
         uint64_t rx_free_thresh;
 };
+
+struct rte_eth_adv_rxconf{
+    rte_eth_rss_conf rss_conf;
+};
 struct rte_dev_conf{
     rte_eth_rxconf rxmode;
     rte_eth_txconf txmode;
+    rte_eth_adv_rxconf rx_adv_conf;
+};
 
-    struct{
-        rte_eth_rss_conf rss_conf; 
-    }rx_adv_conf;
+struct rte_eth_dev_conf{
+    uint16_t ring_size;
+};
+
+struct rte_eth_desc_lim{
+    uint16_t nb_max, nb_min, nb_seg_max;
+    uint16_t nb_mtu_seg_max;
+};
+struct rte_eth_dev_info {
+    uint16_t min_mtu;   
+    uint16_t max_mtu;   
+    uint32_t min_rx_bufsize;
+    uint32_t max_rx_bufsize;
+    uint32_t max_rx_pktlen; 
+    uint16_t max_rx_queues; 
+    uint16_t max_tx_queues; 
+    uint64_t rx_offload_capa;
+    uint64_t tx_offload_capa;
+    uint64_t rx_queue_offload_capa;
+    uint64_t tx_queue_offload_capa;
+    uint16_t reta_size;
+    uint16_t max_mac_addrs;
+    uint8_t hash_key_size; 
+    uint32_t rss_algo_capa; 
+    uint64_t flow_type_rss_offloads;
+    struct rte_eth_rxconf default_rxconf; 
+    struct rte_eth_txconf default_txconf; 
+    uint16_t vmdq_queue_base; 
+    uint16_t vmdq_queue_num;  
+    uint16_t vmdq_pool_base; 
+    
+    rte_eth_desc_lim rx_desc_lim;  
+    rte_eth_desc_lim tx_desc_lim;  
+    uint16_t nb_rx_queues; 
+    uint16_t nb_tx_queues; 
+    struct rte_eth_dev_conf default_rxportconf;
+    struct rte_eth_dev_conf default_txportconf;
 };
 
 struct rte_eth_dev_data {
@@ -95,6 +144,12 @@ struct rte_eth_dev_data {
         T* get() {return static_cast<T*>(data);}
 };
 
+struct rte_eth_conf{
+    rte_eth_rxconf rxmode;
+    rte_eth_txconf txmode;
+    rte_eth_adv_rxconf rx_adv_conf;
+};
+
 struct rte_eth_dev{
     rte_eth_dev_data data;
     template<typename T>
@@ -112,10 +167,9 @@ struct rte_eth_dev{
             rte_mempool *mp) = 0;
     virtual uint16_t tx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) = 0;
     virtual uint16_t rx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) = 0;
-    virtual uint64_t tx_queue_offloads() = 0;
-    virtual uint64_t rx_queue_offloads() = 0;
-    virtual uint64_t tx_port_offloads() = 0;
-    virtual uint64_t rx_port_offloads() = 0;
+
+    void dev_configure(uint16_t nb_tx, uint16_t nb_rx, rte_eth_conf *conf);
+    virtual int get_dev_info(rte_eth_dev_info *info) = 0;
 };
 
 struct eth_dev_info{
