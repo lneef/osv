@@ -706,10 +706,10 @@ bsd += bsd/sys/dev/hyperv/vmbus/hyperv.o
 endif
 ifeq ($(conf_networking_stack),1)
 ifeq ($(conf_drivers_ena),1)
-bsd += bsd/sys/contrib/ena_comv1/ena_eth_com.o
-bsd += bsd/sys/contrib/ena_comv1/ena_com.o
-bsd += bsd/sys/dev/enav2/ena_datapath.o
-bsd += bsd/sys/dev/enav2/enav2.o
+bsd += bsd/sys/dev/enav2/base/ena_eth_com.o
+bsd += bsd/sys/dev/enav2/base/ena_com.o
+bsd += bsd/sys/dev/enav2/ena_ethdev.o
+bsd += bsd/sys/dev/enav2/ena_rss.o
 $(out)/bsd/sys/dev/enav2/%.o: CXXFLAGS += -Ibsd/sys/contrib
 endif
 endif
@@ -1163,8 +1163,8 @@ objects += core/osv_c_wrappers.o
 endif
 objects += core/options.o
 objects += core/string_utils.o
-objects += core/pktbuf.o
-objects += core/pbuf_alloc.o
+objects += core/mem.o
+objects += core/time.o
 objects += core/net_eth.o
 #include $(src)/libc/build.mk:
 libc =

@@ -1,12 +1,12 @@
-#include "net.hh"
 #include "osv/clock.hh"
 #include <arpa/inet.h>
+#include <bypass/mem.hh>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <api/bypass/net_eth.hh>
-#include <api/bypass/net_bypass.h>
-#include <api/bypass/pktbuf.hh>
+
+#include <api/bypass/mem.hh>
+#include <api/bypass/dev.hh>
 #include <endian.h>
 #include <features.h>
 #include <memory>
@@ -24,19 +24,20 @@ static constexpr uint32_t pbuf_sz = 2048;
     val2 = temp; \
     }while(0);
 
-using pool_ptr = std::unique_ptr<pbuf_pool, decltype(std::addressof(pbuf_pool::pbuf_pool_delete))>;
+using pool_ptr = std::unique_ptr<rte_pktmbuf_pool, decltype(std::addressof(rte_pktmbuf_pool::rte_pktmbuf_pool_delete))>;
 
 struct port_config{
     pool_ptr recv_pool;
-    eth_dev *dev;
+    rte_eth_dev *dev;
     uint64_t rt;
     uint16_t burst_size;
 
     port_config():
-        recv_pool(pbuf_pool::bpuf_pool_create("recv", pbuf_sz, 0), &pbuf_pool::pbuf_pool_delete),
+        recv_pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("recv", pbuf_sz, 0), &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
         rt(300), burst_size(1){}
 };
 
+/*
 static void configure_port(port_config& pconf){
     uint32_t nb_desc = 1024;
     pconf.dev = eth_dev::get_eth_for_port(0);
@@ -96,6 +97,7 @@ static void do_pong(port_config &pconf){
         nb_rm = nb_rm - nb_tx;
     }
 }
+*/
 
 int main(int argc, char* argv[]){
     port_config pconf;
@@ -119,9 +121,6 @@ int opt, option_index;
       break;
     }
   }
-    configure_port(pconf);
-    do_pong(pconf);
-    close_port(pconf);
     return 0;
 
 }
