@@ -302,11 +302,10 @@ static void ena_free_irqs(ena_adapter *adapter);
 /******************************************************************************
  ******************************** AENQ Handlers *******************************
  *****************************************************************************/
-static void ena_notification(void *adapter_data,
+static void ena_notification(void *data,
 			     struct ena_admin_aenq_entry *aenq_e)
 {
-	rte_eth_dev *eth_dev = static_cast<rte_eth_dev*>(adapter_data);
-	ena_adapter *adapter = eth_dev->get<ena_adapter>();
+  auto* adapter = static_cast<ena_adapter*>(data);
 	ena_admin_ena_hw_hints *hints;
 
 	if (aenq_e->aenq_common_desc.group != ENA_ADMIN_NOTIFICATION)
@@ -326,11 +325,10 @@ static void ena_notification(void *adapter_data,
 	}
 }
 
-static void ena_keep_alive(void *adapter_data,
+static void ena_keep_alive(void *data,
 			   __rte_unused struct ena_admin_aenq_entry *aenq_e)
 {
-	rte_eth_dev *eth_dev = static_cast<rte_eth_dev*>(adapter_data);
-	ena_adapter *adapter = eth_dev->get<ena_adapter>();
+  auto* adapter = static_cast<ena_adapter*>(data);  
 	ena_admin_aenq_keep_alive_desc *desc;
 	uint64_t rx_drops;
 	uint64_t tx_drops;
@@ -364,10 +362,11 @@ static void ena_suboptimal_configuration(__rte_unused void *adapter_data,
 }
 
 static void
-ena_update_on_link_change(void *adapter_data,
+ena_update_on_link_change(void *data,
     struct ena_admin_aenq_entry *aenq_e)
 {
-	struct ena_adapter *adapter = (struct ena_adapter *)adapter_data;
+    
+	auto *adapter = static_cast<ena_adapter*>(data);
 	struct ena_admin_aenq_link_change_desc *aenq_desc;
 	int status;
 
@@ -379,7 +378,7 @@ ena_update_on_link_change(void *adapter_data,
 		//ena_log(adapter->pdev, DBG, "link is UP");
     adapter->link_status = 1;
 	} else {
-		//ena_log(adapter->pdev, DBG, "link is DOWN");
+		//na_log(adapter->pdev, DBG, "link is DOWN");
     adapter->link_status = 0;
 	}
 }
