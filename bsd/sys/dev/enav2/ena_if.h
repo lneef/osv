@@ -7,6 +7,7 @@
 
 class ena_eth_dev : public rte_eth_dev{
 public:
+    ena_eth_dev(void* data): rte_eth_dev(data) {}
     int mtu_set(uint16_t mtu) override;
     int start() override;
     int stop() override;

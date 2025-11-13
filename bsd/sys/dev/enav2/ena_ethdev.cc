@@ -2517,7 +2517,7 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter){
   ena_dev = &adapter->ena_dev;
   edev = static_cast<ena_eth_dev*>(malloc(sizeof(ena_eth_dev), M_DEVBUF, M_WAITOK | M_ZERO));
   adapter->edev = edev;
-  new (adapter->edev) ena_eth_dev();
+  new (adapter->edev) ena_eth_dev(adapter);
   rte_timer_init(&adapter->timer_wd);
 
   eth_os::register_port(adapter->edev);

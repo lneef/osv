@@ -140,6 +140,8 @@ struct rte_eth_dev_data {
         std::array<uint8_t, RTE_ETHER_ADDR_LEN> mac;
     }mac_addr;
 
+    rte_eth_dev_data(void* data): data(data) {}
+
     template<typename T>
         T* get() {return static_cast<T*>(data);}
 };
@@ -154,6 +156,7 @@ struct rte_eth_dev{
     rte_eth_dev_data data;
     template<typename T>
         T* get(){ return static_cast<T*>(data.get<T>()); }
+    rte_eth_dev(void* dev_data): data(dev_data) {}
 
     virtual int mtu_set(uint16_t mtu) = 0;
     virtual int start() = 0;
