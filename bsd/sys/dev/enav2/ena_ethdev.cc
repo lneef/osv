@@ -2526,8 +2526,8 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter){
 	bool disable_meta_caching;
   bool use_large_llq_hdr;
 
-  adapter->regs = dev->get_bar(ENA_REGS_BAR);
-  adapter->dev_mem = dev->get_bar(ENA_MEM_BAR);
+  adapter->regs = dev->get_bar(ENA_REGS_BAR + 1);
+  adapter->dev_mem = dev->get_bar(ENA_MEM_BAR + 1);
   if(!adapter->regs->is_mapped())
       adapter->regs->map();
   if(!adapter->dev_mem->is_mapped())
