@@ -2526,17 +2526,18 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter){
 	bool disable_meta_caching;
   bool use_large_llq_hdr;
 
-	if (!adapter->regs) {
-		ena_log_raw(CRIT, "Failed to access registers BAR(%d)",
-			     ENA_REGS_BAR);
-		return -ENXIO;
-	}
   adapter->regs = dev->get_bar(ENA_REGS_BAR);
   adapter->dev_mem = dev->get_bar(ENA_MEM_BAR);
   if(!adapter->regs->is_mapped())
       adapter->regs->map();
   if(!adapter->dev_mem->is_mapped())
     adapter->dev_mem->map();
+
+  if (!adapter->regs) {
+		ena_log_raw(CRIT, "Failed to access registers BAR(%d)",
+			     ENA_REGS_BAR);
+		return -ENXIO;
+	}
 
   /*
    * we use pci::bar
