@@ -132,10 +132,10 @@ struct rte_eth_dev_data {
     rte_dev_conf dev_conf;
     void *data;
     int dev_started = 0;
-    std::array<enum queue_state, 1024> rx_queue_state;
-    std::array<enum queue_state, 1024> tx_queue_state;
-    std::array<void*, 1024> tx_queues;
-    std::array<void*, 1024> rx_queues;
+    std::vector<enum queue_state> rx_queue_state;
+    std::vector<enum queue_state> tx_queue_state;
+    std::vector<void*> tx_queues;
+    std::vector<void*> rx_queues;
     struct{
         std::array<uint8_t, RTE_ETHER_ADDR_LEN> mac;
     }mac_addr;

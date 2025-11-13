@@ -375,10 +375,10 @@ ena_update_on_link_change(void *data,
 	    ENA_ADMIN_AENQ_LINK_CHANGE_DESC_LINK_STATUS_MASK;
 
 	if (status != 0) {
-		//ena_log(adapter->pdev, DBG, "link is UP");
+		ena_log(adapter->pdev, DBG, "link is UP");
     adapter->link_status = 1;
 	} else {
-		//na_log(adapter->pdev, DBG, "link is DOWN");
+		ena_log(adapter->pdev, DBG, "link is DOWN");
     adapter->link_status = 0;
 	}
 }
@@ -1340,8 +1340,6 @@ static void ena_timer_wd_callback(void *arg)
 
 	if (unlikely(adapter->trigger_reset)) {
 		ena_log_raw(ERR, "Trigger reset is on");
-		//rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_RESET,
-			//NULL);
 	}
   rte_timer_reset(&adapter->timer_wd, rte_get_timer_hz(), ena_timer_wd_callback, arg);
 }
@@ -2264,7 +2262,9 @@ int ena_eth_dev::rx_queue_setup(
 uint16_t ena_eth_dev::tx_burst(uint16_t qid, rte_mbuf **tx_pkts,
 				  uint16_t nb_pkts)
 {
-	ena_ring *tx_ring = &get<ena_adapter>()->tx_ring[qid];
+  if(qid >= data.nb_tx_queues)
+      return 0;
+	ena_ring *tx_ring = static_cast<ena_ring*>(data.tx_queues[qid]);
 	int available_desc;
 	uint16_t sent_idx = 0;
 
@@ -2307,7 +2307,9 @@ uint16_t ena_eth_dev::tx_burst(uint16_t qid, rte_mbuf **tx_pkts,
 uint16_t ena_eth_dev::rx_burst(uint16_t qid, rte_mbuf **rx_pkts,
 				  uint16_t nb_pkts)
 {
-  ena_ring *rx_ring = &get<ena_adapter>()->rx_ring[qid];
+  if(qid >= data.nb_rx_queues)
+      return 0;
+  ena_ring *rx_ring = static_cast<ena_ring*>(data.rx_queues[qid]);
   unsigned int free_queue_entries;
 	uint16_t next_to_clean = rx_ring->next_to_clean;
 	enum ena_regs_reset_reason_types reset_reason;
