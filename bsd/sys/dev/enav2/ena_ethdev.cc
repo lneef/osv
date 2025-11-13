@@ -376,10 +376,10 @@ ena_update_on_link_change(void *adapter_data,
 	    ENA_ADMIN_AENQ_LINK_CHANGE_DESC_LINK_STATUS_MASK;
 
 	if (status != 0) {
-		ena_log(adapter->pdev, DBG, "link is UP");
+		//ena_log(adapter->pdev, DBG, "link is UP");
     adapter->link_status = 1;
 	} else {
-		ena_log(adapter->pdev, DBG, "link is DOWN");
+		//ena_log(adapter->pdev, DBG, "link is DOWN");
     adapter->link_status = 0;
 	}
 }
