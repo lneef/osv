@@ -376,10 +376,10 @@ ena_update_on_link_change(void *adapter_data,
 	    ENA_ADMIN_AENQ_LINK_CHANGE_DESC_LINK_STATUS_MASK;
 
 	if (status != 0) {
-		ena_log(adapter->pdev, INFO, "link is UP");
+		ena_log(adapter->pdev, DBG, "link is UP");
     adapter->link_status = 1;
 	} else {
-		ena_log(adapter->pdev, INFO, "link is DOWN");
+		ena_log(adapter->pdev, DBG, "link is DOWN");
     adapter->link_status = 0;
 	}
 }
@@ -1658,7 +1658,6 @@ static struct rte_mbuf *ena_rx_mbuf(struct ena_ring *rx_ring,
 
 	if (unlikely(descs == 0))
 		return NULL;
-
 	ntc = *next_to_clean;
 
 	len = ena_bufs[buf].len;
@@ -1667,7 +1666,6 @@ static struct rte_mbuf *ena_rx_mbuf(struct ena_ring *rx_ring,
 	rx_info = &rx_ring->rx_buffer_info[req_id];
 
 	mbuf = rx_info->mbuf;
-
 	ena_init_rx_mbuf(mbuf, len);
 
 	/* Fill the mbuf head with the data specific for 1st segment. */
@@ -2368,6 +2366,8 @@ uint16_t ena_eth_dev::rx_burst(uint16_t qid, rte_mbuf **rx_pkts,
 			return 0;
 		}
 
+
+
 		mbuf = ena_rx_mbuf(rx_ring,
 			ena_rx_ctx.ena_bufs,
 			ena_rx_ctx.descs,
@@ -2382,6 +2382,12 @@ uint16_t ena_eth_dev::rx_burst(uint16_t qid, rte_mbuf **rx_pkts,
 			}
 			break;
 		}
+
+    ena_log_io(adapter->pdev, INFO,
+               "rx: q %d got packet from ena. descs #: %d l3 proto %d l4 proto "
+               "%d hash: %x",
+               qid, ena_rx_ctx.descs, ena_rx_ctx.l3_proto,
+               ena_rx_ctx.l4_proto, ena_rx_ctx.hash);
 
 		/* fill mbuf attributes if any */
 		ena_rx_mbuf_prepare(rx_ring, mbuf, &ena_rx_ctx);
