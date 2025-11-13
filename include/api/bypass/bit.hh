@@ -14,7 +14,7 @@ __inline constexpr uint32_t rte_align32prevpow2(uint32_t num){
 }
 
 __inline constexpr bool rte_is_power_of_2(uint32_t val){
-    return __builtin_popcount(val) == 0;
+    return __builtin_popcount(val) == 1;
 }
 #endif
 
