@@ -474,6 +474,11 @@ static inline void ena_tx_mbuf_prepare(struct rte_mbuf *mbuf,
 
 	if ((mbuf->ol_flags & MBUF_OFFLOADS) &&
 	    (queue_offloads & QUEUE_OFFLOADS)) {
+
+		/* check if L3 checksum is needed */
+		if ((mbuf->ol_flags & RTE_MBUF_F_TX_IP_CKSUM) &&
+		    (queue_offloads & RTE_ETH_TX_OFFLOAD_IPV4_CKSUM))
+			ena_tx_ctx->l3_csum_enable = true;
 	
 		if (mbuf->ol_flags & RTE_MBUF_F_TX_IPV6) {
 			ena_tx_ctx->l3_proto = ENA_ETH_IO_L3_PROTO_IPV6;
