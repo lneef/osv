@@ -574,14 +574,12 @@ bool driver::parse_pci_config()
 
 hw_driver* driver::probe(hw_device* dev)
 {
-    /*
     if (auto pci_dev = dynamic_cast<pci::device*>(dev)) {
         if ((pci_dev->get_base_class_code() == pci::function::PCI_CLASS_STORAGE) &&
             (pci_dev->get_sub_class_code() == pci::function::PCI_SUB_CLASS_STORAGE_NVMC) &&
             (pci_dev->get_programming_interface() == 2))// detect NVMe device
             return aligned_new<driver>(*pci_dev);
     }
-    */
     return nullptr;
 }
 

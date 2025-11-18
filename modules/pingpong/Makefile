@@ -12,4 +12,4 @@ pingpong.so: $(SRCS)
 	$(call quiet, $(CXX) $(CXXFLAGS) -shared -o $@ $(SRCS), LINK $@)
 
 clean:
-	rm -f pingpong.so pingpong.d
+	rm -f pingpong.so pingpong.d pingpong-stripped.so

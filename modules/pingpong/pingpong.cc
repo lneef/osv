@@ -1,6 +1,8 @@
+#include <algorithm>
 #include <arpa/inet.h>
 #include <bypass/mem.hh>
 #include <bypass/time.hh>
+#include <cerrno>
 #include <cstdint>
 
 #include <api/bypass/dev.hh>
@@ -12,9 +14,11 @@
 #include <getopt.h>
 #include <iostream>
 #include <memory>
+#include <ostream>
 #include <unistd.h>
 #include <utility>
 #include <vector>
+#include <algorithm>
 
 #include "net.hh"
 static constexpr uint32_t pbuf_sz = 2048;
@@ -66,21 +70,37 @@ static rte_eth_conf conf = {
     .txmode = {.offloads = RTE_ETH_TX_OFFLOAD_UDP_CKSUM |
                            RTE_ETH_TX_OFFLOAD_IPV4_CKSUM}};
 
-static void configure_port(port_config &pconf) {
-  uint32_t nb_desc = 1024;
+static int configure_port(port_config &pconf) {
+  uint16_t nb_desc = 1024, tx_desc, rx_desc;
   rte_eth_dev_info info{};
   struct rte_eth_rxconf rxconf{};
   struct rte_eth_txconf txconf{};
   pconf.dev = eth_os::get_eth_for_port(0);
+  if(!pconf.dev){
+      std::cout << "no dev" << std::endl;
+      return ENODEV;
+  }
   pconf.dev->get_dev_info(&info);
+  rx_desc = std::min<uint16_t>(nb_desc, info.rx_desc_lim.nb_max);
+  tx_desc = std::min<uint16_t>(nb_desc, info.tx_desc_lim.nb_max);
   pconf.dev->dev_configure(1, 1, &conf);
   rxconf.offloads |= RTE_ETH_RX_OFFLOAD_CHECKSUM;
   txconf.offloads |=
       RTE_ETH_TX_OFFLOAD_UDP_CKSUM | RTE_ETH_TX_OFFLOAD_IPV4_CKSUM;
-  pconf.dev->rx_queue_setup(0, nb_desc, 0, &rxconf, pconf.pool.get());
+  if(pconf.dev->rx_queue_setup(0, rx_desc, 0, &rxconf, pconf.pool.get())){
+      std::cout << "rx queue setup failed" << std::endl;
+      return 1;
+  }
   
-  pconf.dev->tx_queue_setup(0, nb_desc, 0, &txconf);
-  pconf.dev->start();
+  if(pconf.dev->tx_queue_setup(0, tx_desc, 0, &txconf)){
+      std::cerr << "tx queue setup failed" << std::endl;
+      return 1;
+  }
+  if(pconf.dev->start()){
+      std::cout << "Starting dev failed" <<std::endl;
+      return 1;
+  }
+  return 0;
 }
 
 static void init_packets(const std::vector<rte_mbuf *> &pkts) {
@@ -150,7 +170,7 @@ static void do_ping(port_config &pconf) {
     nb_tx = pconf.dev->tx_burst(0, pkts.data(), burst_size);
     if (!nb_tx)
       continue;
-    cycles = cycles_per_it;
+    cycles += cycles_per_it;
     total = 0;
     do {
       nb_rx = pconf.dev->rx_burst(0, rpkts.data(), burst_size);
@@ -204,7 +224,8 @@ int main(int argc, char *argv[]) {
   std::cout << "runtime" << std::endl;
   std::cin >> pconf.rt;
   std::cout << "starting" << std::endl;
-  configure_port(pconf);
+  if(configure_port(pconf))
+      return -1;
   switch (opmode) {
   case PING:
     do_ping(pconf);
@@ -213,6 +234,7 @@ int main(int argc, char *argv[]) {
     do_pong(pconf);
     break;
   }
+  std::cout << "done" << std::endl;
   close_port(pconf);
   return 0;
 }
