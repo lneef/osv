@@ -1,1 +1,1 @@
-/pong.so: ${MODULE_DIR}/pong.so
+/pingpong.so: ${MODULE_DIR}/pingpong.so

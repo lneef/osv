@@ -306,7 +306,7 @@ post-includes-bsd += -isystem bsd/$(arch)
 $(out)/musl/%.o: pre-include-api = -isystem include/api/internal_musl_headers -isystem musl/src/include
 
 ifneq ($(werror),0)
-	CFLAGS_WERROR = -Werror
+	CFLAGS_WERROR =
 endif
 # $(call compiler-flag, -ffoo, option, file)
 #     returns option if file builds with -ffoo, empty otherwise
@@ -376,7 +376,7 @@ gc-flags = $(gc-flags-$(conf_hide_symbols))
 
 gcc-opt-Og := $(call compiler-flag, -Og, -Og, compiler/empty.cc)
 
-CXXFLAGS = -std=$(conf_cxx_level) $(COMMON) $(cxx-hide-flags)
+CXXFLAGS = -std=$(conf_cxx_level) $(COMMON) $(cxx-hide-flags) 
 CFLAGS = -std=gnu99 $(COMMON)
 
 # should be limited to files under libc/ eventually

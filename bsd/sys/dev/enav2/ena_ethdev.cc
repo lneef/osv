@@ -1414,7 +1414,8 @@ ena_set_queues_placement_policy(struct ena_adapter *adapter,
 	/* Nothing to config, exit */
 	if (ena_dev->tx_mem_queue_type == ENA_ADMIN_PLACEMENT_POLICY_HOST)
 		return 0;
-
+  
+  adapter->dev_mem->map();
 	ena_dev->mem_bar = const_cast<void*>(adapter->dev_mem->get_mmio());
 
 	return 0;
@@ -2501,7 +2502,7 @@ ena_probe(pci::device* pdev)
 	ena_vendor_info_t *ent = ena_vendor_info_array;
 	while (ent->vendor_id != 0) {
 		if (pdev->get_id() == hw_device_id(ent->vendor_id, ent->device_id)) {
-			ena_log_raw(DBG, "vendor=%x device=%x", ent->vendor_id,
+			ena_log_raw(INFO, "vendor=%x device=%x", ent->vendor_id,
 			    ent->device_id);
 
 			return true;
@@ -2540,22 +2541,13 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter){
 
   adapter->regs = dev->get_bar(ENA_REGS_BAR + 1);
   adapter->dev_mem = dev->get_bar(ENA_MEM_BAR + 1);
-  if(!adapter->regs->is_mapped())
-      adapter->regs->map();
-  if(!adapter->dev_mem->is_mapped())
-    adapter->dev_mem->map();
-
   if (!adapter->regs) {
 		ena_log_raw(CRIT, "Failed to access registers BAR(%d)",
 			     ENA_REGS_BAR);
 		return -ENXIO;
 	}
-
-  /*
-   * we use pci::bar
-   */
+  adapter->regs->map();
 	ena_dev->reg_bar = static_cast<u8*>(const_cast<void*>(adapter->regs->get_mmio()));
-  ena_dev->mem_bar = static_cast<u8*>(const_cast<void*>(adapter->regs->get_mmio()));
 	/* Pass device data as a pointer which can be passed to the IO functions
 	 * by the ena_com (for example - the memory allocation).
 	 */
