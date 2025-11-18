@@ -156,10 +156,10 @@ static void do_ping(port_config &pconf) {
   uint16_t nb_tx = burst_size;
   std::vector<rte_mbuf *> pkts(burst_size, nullptr);
   std::vector<rte_mbuf *> rpkts(burst_size, nullptr);
-  auto cycles_per_it = 1e9;
+  const auto max cycles_per_it = rte_get_timer_hz();
   auto cycles = rte_get_timer_cycles();
-  auto end = cycles + pconf.rt * 1e9;
-  for (; rte_get_timer_cycles() < end;) {
+  auto end = cycles + pconf.rt * rte_get_timer_hz();
+  for (; cycles < end; cycles = rte_get_timer_cycles()) {
     if (nb_tx) {
       if (pconf.pool->alloc_bulk(pkts.data(), nb_tx))
         continue;
@@ -170,14 +170,17 @@ static void do_ping(port_config &pconf) {
     nb_tx = pconf.dev->tx_burst(0, pkts.data(), burst_size);
     if (!nb_tx)
       continue;
-    cycles += cycles_per_it;
+    auto deadline = cycles + max_cycles_per_it;
     total = 0;
     do {
       nb_rx = pconf.dev->rx_burst(0, rpkts.data(), burst_size);
       if (nb_rx)
         total += receive_packets_ping(pconf, rpkts, nb_rx);
-    } while (total < nb_tx && rte_get_timer_cycles() < cycles);
+    } while (total < nb_tx && rte_get_timer_cycles() < deadline);
   }
+  
+  std::cout << "Latency:"  << (pconf.ticks * rte_get_timer_hz() / 1e6) / (static_cast<double>(pconf.pkts)) << std::endl;
+  std::cout << "PPS:" << static_cast<double>(pconf.pkts) / pconf.rt << std::endl;
 }
 
 static void do_pong(port_config &pconf) {
