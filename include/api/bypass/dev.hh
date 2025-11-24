@@ -136,9 +136,7 @@ struct rte_eth_dev_data {
     std::vector<enum queue_state> tx_queue_state;
     std::vector<void*> tx_queues;
     std::vector<void*> rx_queues;
-    struct{
-        std::array<uint8_t, RTE_ETHER_ADDR_LEN> mac;
-    }mac_addr;
+    rte_ether_addr mac_addr;
 
     rte_eth_dev_data(void* data): data(data) {}
 
@@ -158,6 +156,7 @@ struct rte_eth_dev{
         T* get(){ return static_cast<T*>(data.get<T>()); }
     rte_eth_dev(void* dev_data): data(dev_data) {}
 
+    virtual ~rte_eth_dev() = default;
     virtual int mtu_set(uint16_t mtu) = 0;
     virtual int start() = 0;
     virtual int stop() = 0;
@@ -170,7 +169,8 @@ struct rte_eth_dev{
             rte_mempool *mp) = 0;
     virtual uint16_t tx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) = 0;
     virtual uint16_t rx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) = 0;
-
+    virtual int drv_configure() = 0;
+    virtual void get_stats(rte_eth_stats *stats) = 0;
     void dev_configure(uint16_t nb_tx, uint16_t nb_rx, rte_eth_conf *conf);
     virtual int get_dev_info(rte_eth_dev_info *info) = 0;
 };

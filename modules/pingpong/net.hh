@@ -5,14 +5,14 @@
 #include <cstring>
 #include <cstdio>
 #include <api/bypass/mem.hh>
+#include <bypass/net.hh>
 #include <endian.h>
-#include <netinet/ip.h>
-#include <string>
 
 static constexpr uint16_t ETHER_ADDR_LEN = 6;
 static constexpr uint16_t IPV4 = 0x0800;
-static constexpr uint16_t VERSION = 4;
-static constexpr uint16_t TTL = 64;
+static constexpr uint8_t VERSION = 4;
+static constexpr uint8_t VERSION_IHL = ((VERSION << 4) | 0x5);
+static constexpr uint8_t TTL = 64;
 
 static __inline void* PTR_ADD(const void* ptr, size_t x) { return ((void*)((uintptr_t)(ptr) + (x))); }
 
@@ -20,22 +20,7 @@ template<typename T>
 static __inline T ALIGN_FLOOR(T val, uint32_t align){
     return static_cast<T>((val) & (~static_cast<T>(align - 1)));
 }
-struct ether_addr {
-    std::array<char, ETHER_ADDR_LEN> addr;
-    void parse_string(const char* mac){
-        sscanf(mac, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &addr[0], &addr[1], &addr[2], &addr[3], &addr[4], &addr[5]);
-        auto len = strlen(mac);
-        for(auto i = 0u, j = 0u; i < len; i += 3){
-            addr[j++] = std::stoul(mac + i, nullptr, 16);
-        }
-    }
-};
 
-struct [[gnu::packed]] eth_header{
-    ether_addr dst;
-    ether_addr src;
-    uint16_t ether_type;
-};
 
 struct [[gnu::packed]] ipv4_header{
     uint8_t  version_ihl;       
@@ -59,8 +44,8 @@ struct [[gnu::packed]] udp_header{
 };
 
 struct app_config{
-    ether_addr src;
-    ether_addr dst;
+    rte_ether_addr src;
+    rte_ether_addr dst;
     uint32_t sip;
     uint32_t dip;
     uint32_t l4port;
@@ -119,21 +104,22 @@ inline uint16_t phdr_cksum(ipv4_header* ipv4, udp_header* udp){
      return _raw_cksum_reduce(sum);
 }
 
-
+#include <iostream>
 static void create_packet(const app_config& config, rte_mbuf *pkt){
     uint16_t len = config.data_len;
-    eth_header *eth = reinterpret_cast<eth_header*>(pkt->buf);
+    memset(pkt->buf, 0, pkt->buf_len);
+    rte_eth_header *eth = reinterpret_cast<rte_eth_header*>(pkt->buf);
     ipv4_header *ipv4 = reinterpret_cast<ipv4_header*>(eth + 1);
     udp_header *udp = reinterpret_cast<udp_header*>(ipv4 + 1);
 
     len += sizeof(*udp);
-    udp->src_port = config.l4port;
-    udp->dst_port = config.l4port;
+    udp->src_port = htobe16(config.l4port);
+    udp->dst_port = htobe16(config.l4port);
     udp->dgram_len = htobe16(len);
     pkt->l4_len = sizeof(*udp);
 
     len += sizeof(*ipv4);
-    ipv4->version_ihl = VERSION;
+    ipv4->version_ihl = VERSION_IHL;
     ipv4->time_to_live = TTL;
     ipv4->next_proto_id = IPPROTO_UDP;
     ipv4->fragment_offset = 0;
@@ -146,7 +132,7 @@ static void create_packet(const app_config& config, rte_mbuf *pkt){
 
     eth->src = config.src;
     eth->dst = config.dst;
-    eth->ether_type = IPV4;
+    eth->ether_type = htobe16(IPV4);
     pkt->l2_len = sizeof(*eth);
 
     pkt->pkt_len = sizeof(*eth) + len;
@@ -160,6 +146,11 @@ static void create_packet(const app_config& config, rte_mbuf *pkt){
 }
 
 static bool verify_packet(const rte_mbuf* pkt){
-    return (pkt->ol_flags & RTE_MBUF_F_RX_IP_CKSUM_GOOD) && (pkt->ol_flags & RTE_MBUF_F_RX_L4_CKSUM_GOOD);
+    auto *eth = reinterpret_cast<const rte_eth_header*>(pkt->buf);
+    if(eth->ether_type != htobe16(IPV4))
+        return false;
+    bool l3_valid = (pkt->ol_flags & RTE_MBUF_F_RX_IP_CKSUM_GOOD) || ((pkt->ol_flags & RTE_MBUF_F_RX_IP_CKSUM_MASK) == RTE_MBUF_F_RX_IP_CKSUM_UNKNOWN);
+    bool l4_valid = (pkt->ol_flags & RTE_MBUF_F_RX_L4_CKSUM_GOOD) || ((pkt->ol_flags & RTE_MBUF_F_RX_L4_CKSUM_MASK) == RTE_MBUF_F_RX_L4_CKSUM_UNKNOWN);
+    return l3_valid && l4_valid;
 }
 #endif // !HEADERS_H

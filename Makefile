@@ -487,7 +487,7 @@ $(out)/vmlinuz-boot.bin: $(out)/arch/x64/vmlinuz-boot32.o arch/x64/vmlinuz-boot.
 $(out)/vmlinuz.bin: $(out)/vmlinuz-boot.bin $(out)/loader-stripped.elf
 	$(call quiet, dd if=$(out)/vmlinuz-boot.bin of=$@ > /dev/null 2>&1, DD vmlinuz.bin vmlinuz-boot.bin)
 	$(call quiet, dd if=$(out)/loader-stripped.elf of=$@ conv=notrunc seek=4 > /dev/null 2>&1, \
-		DD vmlinuz.bin loader-stripped.elf)
+		DD vmlinuz.bin loader-stripped.elf)packet_pp_ctor_udp
 
 $(out)/fastlz/fastlz.o:
 	$(makedir)
@@ -1167,6 +1167,7 @@ objects += core/mem.o
 objects += core/time.o
 objects += core/net_eth.o
 objects += core/dev.o
+objects += core/net.o
 #include $(src)/libc/build.mk:
 libc =
 libc_to_hide =

@@ -2,7 +2,6 @@
 #define BYPASS_TIME_H
 
 #include <cstdint>
-#include <porting/_callout.h>
 #include <porting/callout.h>
 
 static constexpr uint64_t NS_PER_S = 1e9;
@@ -22,6 +21,6 @@ using rte_timer = callout;
 typedef void(*rte_timer_cb_t) (rte_timer *, void *);
 #define rte_timer_init(x) callout_init(x, true)
 #define rte_timer_stop_sync(x) callout_drain(x)
-#define rte_timer_reset(x, ticks, cb, arg) callout_reset(x, ticks, cb, arg)
+#define rte_timer_reset(x, ticks, cb, arg) callout_reset(x, ns2ticks(ticks), cb, arg)
 
 #endif // !

@@ -11,4 +11,5 @@ void rte_eth_dev::dev_configure(uint16_t nb_rx, uint16_t nb_tx, rte_eth_conf *co
     data.rx_queues.resize(nb_rx, nullptr);
     data.tx_queue_state.resize(nb_tx, RTE_ETH_QUEUE_STATE_STOPPED);
     data.rx_queue_state.resize(nb_rx, RTE_ETH_QUEUE_STATE_STOPPED);
+    drv_configure();
 }

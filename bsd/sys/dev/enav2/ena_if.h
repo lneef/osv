@@ -8,6 +8,7 @@
 class ena_eth_dev : public rte_eth_dev{
 public:
     ena_eth_dev(void* data): rte_eth_dev(data) {}
+    ~ena_eth_dev() override = default;
     int mtu_set(uint16_t mtu) override;
     int start() override;
     int stop() override;
@@ -20,6 +21,8 @@ public:
             rte_mempool *mp) override;
     uint16_t tx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) override;
     uint16_t rx_burst(uint16_t qid, rte_mbuf** pkts, uint16_t nb_pkts) override;
+    void get_stats(rte_eth_stats *stats) override;
+    int drv_configure() override;
     int get_dev_info(rte_eth_dev_info *info) override; 
 };
 #endif // !ENA_IF_H_

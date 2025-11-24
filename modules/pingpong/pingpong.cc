@@ -1,10 +1,12 @@
 #include <algorithm>
 #include <arpa/inet.h>
 #include <bypass/mem.hh>
+#include <bypass/net.hh>
 #include <bypass/time.hh>
 #include <cerrno>
 #include <cstdint>
 
+#include <algorithm>
 #include <api/bypass/dev.hh>
 #include <api/bypass/mem.hh>
 #include <bypass/defs.hh>
@@ -15,13 +17,17 @@
 #include <iostream>
 #include <memory>
 #include <ostream>
+#include <sched.h>
 #include <unistd.h>
 #include <utility>
 #include <vector>
-#include <algorithm>
 
 #include "net.hh"
-static constexpr uint32_t pbuf_sz = 2048;
+#include "osv/sched.hh"
+
+
+#include <bypass/dhcp.hh>
+static constexpr uint32_t pbuf_sz = 1400;
 
 #define SWAP(val1, val2)                                                       \
   do {                                                                         \
@@ -40,16 +46,16 @@ struct payload {
 };
 
 template <typename T> static __inline T pun(rte_mbuf *pbuf) {
-  char *data =
-      pbuf->buf + sizeof(ipv4_header) + sizeof(udp_header) + sizeof(eth_header);
+  char *data = pbuf->buf + sizeof(ipv4_header) + sizeof(udp_header) +
+               sizeof(rte_eth_header);
   T ret_data;
   std::memcpy(&ret_data, data, sizeof(T));
   return ret_data;
 }
 
 template <typename T> static __inline void move_data(rte_mbuf *pbuf, T &data) {
-  char *data_ptr =
-      pbuf->buf + sizeof(ipv4_header) + sizeof(udp_header) + sizeof(eth_header);
+  char *data_ptr = pbuf->buf + sizeof(ipv4_header) + sizeof(udp_header) +
+                   sizeof(rte_eth_header);
   memcpy(data_ptr, &data, sizeof(T));
 }
 struct port_config {
@@ -58,7 +64,7 @@ struct port_config {
   rte_eth_dev *dev;
   uint64_t rt;
   uint16_t burst_size;
-  uint64_t ticks = 0, pkts = 0;
+  uint64_t ticks = 0, pkts = 0, faulty = 0;
   port_config()
       : pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("pool", pbuf_sz, 0),
              &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
@@ -76,9 +82,9 @@ static int configure_port(port_config &pconf) {
   struct rte_eth_rxconf rxconf{};
   struct rte_eth_txconf txconf{};
   pconf.dev = eth_os::get_eth_for_port(0);
-  if(!pconf.dev){
-      std::cout << "no dev" << std::endl;
-      return ENODEV;
+  if (!pconf.dev) {
+    std::cout << "no dev" << std::endl;
+    return ENODEV;
   }
   pconf.dev->get_dev_info(&info);
   rx_desc = std::min<uint16_t>(nb_desc, info.rx_desc_lim.nb_max);
@@ -87,18 +93,20 @@ static int configure_port(port_config &pconf) {
   rxconf.offloads |= RTE_ETH_RX_OFFLOAD_CHECKSUM;
   txconf.offloads |=
       RTE_ETH_TX_OFFLOAD_UDP_CKSUM | RTE_ETH_TX_OFFLOAD_IPV4_CKSUM;
-  if(pconf.dev->rx_queue_setup(0, rx_desc, 0, &rxconf, pconf.pool.get())){
-      std::cout << "rx queue setup failed" << std::endl;
-      return 1;
+  if (pconf.dev->rx_queue_setup(0, rx_desc, 0, &rxconf, pconf.pool.get())) {
+    std::cout << "rx queue setup failed" << std::endl;
+    return 1;
   }
-  
-  if(pconf.dev->tx_queue_setup(0, tx_desc, 0, &txconf)){
-      std::cerr << "tx queue setup failed" << std::endl;
-      return 1;
+
+  if (pconf.dev->tx_queue_setup(0, tx_desc, 0, &txconf)) {
+    std::cout << "tx queue setup failed" << std::endl;
+    return 1;
   }
-  if(pconf.dev->start()){
-      std::cout << "Starting dev failed" <<std::endl;
-      return 1;
+  memcpy(pconf.app.src.addr.data(), pconf.dev->data.mac_addr.addr.data(),
+         sizeof(pconf.app.src));
+  if (pconf.dev->start()) {
+    std::cout << "Starting dev failed" << std::endl;
+    return 1;
   }
   return 0;
 }
@@ -118,22 +126,24 @@ static uint16_t receive_packets_ping(port_config &pconf,
   uint16_t total = 0;
   auto ticks = rte_get_timer_cycles();
   for (uint16_t i = 0; i < nb_rx; ++i) {
-    if (!verify_packet(pkts[i]))
+    if (!verify_packet(pkts[i])) {
+      pconf.faulty++;
       continue;
-    ;
+    }
+
     auto pticks = pun<payload>(pkts[i]);
     pconf.ticks += ticks - pticks.ticks;
     ++pconf.pkts;
     ++total;
-    pconf.pool->free_bulk(pkts.data(), nb_rx);
   }
+  pconf.pool->free_bulk(pkts.data(), nb_rx);
   return total;
 }
 
 static int receive_packets_pong(rte_mbuf *pkt) {
   if (!verify_packet(pkt))
     return -1;
-  eth_header *eth = reinterpret_cast<eth_header *>(pkt->buf);
+  rte_eth_header *eth = reinterpret_cast<rte_eth_header *>(pkt->buf);
   ipv4_header *ipv4 = reinterpret_cast<ipv4_header *>(eth + 1);
   udp_header *udp = reinterpret_cast<udp_header *>(ipv4 + 1);
   std::swap(eth->dst, eth->src);
@@ -154,9 +164,11 @@ static int receive_packets_pong(rte_mbuf *pkt) {
 static void do_ping(port_config &pconf) {
   uint16_t nb_rx = 0, burst_size = 1, total = 0;
   uint16_t nb_tx = burst_size;
+  uint64_t sent = 0;
+
   std::vector<rte_mbuf *> pkts(burst_size, nullptr);
   std::vector<rte_mbuf *> rpkts(burst_size, nullptr);
-  const auto max cycles_per_it = rte_get_timer_hz();
+  //const auto max_cycles_per_it = rte_get_timer_hz();
   auto cycles = rte_get_timer_cycles();
   auto end = cycles + pconf.rt * rte_get_timer_hz();
   for (; cycles < end; cycles = rte_get_timer_cycles()) {
@@ -168,29 +180,39 @@ static void do_ping(port_config &pconf) {
     }
     init_packets(pkts);
     nb_tx = pconf.dev->tx_burst(0, pkts.data(), burst_size);
+    sent += nb_tx;
     if (!nb_tx)
       continue;
-    auto deadline = cycles + max_cycles_per_it;
+    //auto deadline = cycles + max_cycles_per_it;
     total = 0;
     do {
       nb_rx = pconf.dev->rx_burst(0, rpkts.data(), burst_size);
       if (nb_rx)
         total += receive_packets_ping(pconf, rpkts, nb_rx);
-    } while (total < nb_tx && rte_get_timer_cycles() < deadline);
+    } while (total < nb_tx);
   }
-  
-  std::cout << "Latency:"  << (pconf.ticks * rte_get_timer_hz() / 1e6) / (static_cast<double>(pconf.pkts)) << std::endl;
-  std::cout << "PPS:" << static_cast<double>(pconf.pkts) / pconf.rt << std::endl;
+
+  std::cout << "Latency:"
+            << (static_cast<double>(pconf.ticks) / (rte_get_timer_hz() / 1e6)) /
+                   (static_cast<double>(pconf.pkts))
+            << std::endl;
+  std::cout << "PPS:" << static_cast<double>(pconf.pkts) / pconf.rt
+            << std::endl;
+  std::cout << "Total pkts sent:" << sent << std::endl;
 }
 
 static void do_pong(port_config &pconf) {
+  rte_eth_stats stats;
+  pconf.dev->get_stats(&stats);
+  std::cerr << stats.imissed << ", " << stats.ierrors << ", " << stats.ipackets
+            << ", " << stats.ibytes << std::endl;
   uint16_t nb_rx = 0, burst_size = pconf.burst_size;
   uint16_t nb_tx = burst_size;
   uint16_t nb_rm = 0;
   std::vector<rte_mbuf *> pkts(burst_size, nullptr);
   std::vector<rte_mbuf *> rpkts(burst_size, nullptr);
   auto cycles = rte_get_timer_cycles();
-  auto end = cycles + pconf.rt * 1e9;
+  auto end = cycles + pconf.rt * rte_get_timer_hz();
   for (; rte_get_timer_cycles() < end;) {
     nb_rx = pconf.dev->rx_burst(0, rpkts.data(), burst_size - nb_rm);
     for (uint16_t i = 0; i < nb_rx; ++i) {
@@ -203,32 +225,37 @@ static void do_pong(port_config &pconf) {
       pkts[j] = pkts[i];
     nb_rm = nb_rm - nb_tx;
   }
+  pconf.dev->get_stats(&stats);
+  std::cerr << stats.imissed << ", " << stats.ierrors << ", " << stats.ipackets
+            << ", " << stats.ibytes << std::endl;
 }
 
 enum mode { PING, PONG };
+static constexpr uint16_t tu_size = 60 - sizeof(rte_eth_header);
 
 int main(int argc, char *argv[]) {
   std::string mode, sip, dip, dmac;
   port_config pconf;
+  sched::thread::current()->pin(sched::cpus.front());
+
   enum mode opmode = PONG;
   std::cout << "mode" << std::endl;
   std::cin >> mode;
   if (mode == "ping") {
     std::cin >> sip >> dip >> pconf.app.l4port >> dmac;
-    pconf.app.dip = inet_addr(sip.c_str());
-    pconf.app.sip = inet_addr(dip.c_str());
+    pconf.app.sip = inet_addr(sip.c_str());
+    pconf.app.dip = inet_addr(dip.c_str());
     pconf.app.dst.parse_string(dmac.c_str());
-    memcpy(pconf.app.src.addr.data(), pconf.dev->data.mac_addr.mac.data(),
-           sizeof(pconf.app.src));
-    mode = PING;
+    pconf.app.data_len = tu_size -
+                         sizeof(ipv4_header) - sizeof(udp_header);
+    opmode = PING;
   }
   std::cout << "burst_size" << std::endl;
   std::cin >> pconf.burst_size;
   std::cout << "runtime" << std::endl;
   std::cin >> pconf.rt;
-  std::cout << "starting" << std::endl;
-  if(configure_port(pconf))
-      return -1;
+  if (configure_port(pconf))
+    return -1;
   switch (opmode) {
   case PING:
     do_ping(pconf);
@@ -237,7 +264,6 @@ int main(int argc, char *argv[]) {
     do_pong(pconf);
     break;
   }
-  std::cout << "done" << std::endl;
   close_port(pconf);
   return 0;
 }

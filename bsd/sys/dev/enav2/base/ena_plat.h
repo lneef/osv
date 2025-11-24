@@ -85,6 +85,15 @@ typedef struct {
 #define mmiowb rte_io_wmb
 #define __iomem
 
+#define	barrier() __asm__ __volatile__("": : :"memory")
+#define ACCESS_ONCE(var) (*((volatile typeof(var) *)(&(var))))
+#define READ_ONCE(x)  ({			\
+			__typeof(x) __var;	\
+			barrier();		\
+			__var = ACCESS_ONCE(x);	\
+			barrier();		\
+			__var;			\
+		})
 #ifndef READ_ONCE
 #define READ_ONCE(var) (*((volatile typeof(var) *)(&(var))))
 #endif
@@ -304,6 +313,7 @@ ena_dma_alloc(rte_eth_dev_data *dmadev, bus_size_t size, ena_mem_handle_t *dma,
 #define ENA_MEM_ALLOC(dmadev, size) malloc(size, M_DEVBUF, M_NOWAIT | M_ZERO)
 #define ENA_MEM_FREE(dmadev, ptr, size)					       \
 	__extension__ ({ ENA_TOUCH(dmadev); ENA_TOUCH(size); free(ptr); })
+
 
 #define ENA_DB_SYNC(mem_handle) wmb()
 

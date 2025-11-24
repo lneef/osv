@@ -1,1 +1,1 @@
-conf_compiler_opt = -O2 -DNDEBUG
+conf_compiler_opt = -O3 -DNDEBUG
