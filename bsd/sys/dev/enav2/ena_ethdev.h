@@ -10,6 +10,7 @@
 #include <api/bypass/net.hh>
 #include <api/bypass/time.hh>
 #include <api/bypass/util.hh>
+#include <cstdint>
 #include "base/ena_com.h"
 #include "ena_if.h"
 #include "drivers/pci-device.hh"
@@ -314,6 +315,8 @@ struct __rte_cache_aligned ena_adapter {
 	u32 max_num_io_queues;
 	u16 max_mtu;
 	struct ena_offloads offloads;
+
+  uint64_t irqs = 0;
 
 	/* The admin queue isn't protected by the lock and is used to
 	 * retrieve statistics from the device. As there is no guarantee that

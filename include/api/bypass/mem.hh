@@ -179,7 +179,7 @@ using rte_mempool = rte_pktmbuf_pool;
 
 class rte_pktmbuf_pool{
     public:
-        static constexpr uint32_t cache_size = 1024;
+        static constexpr uint32_t cache_size = 4095;
         rte_pktmbuf_pool(const char* name, uint32_t size, uint32_t elems, uint32_t flags);
 
         ~rte_pktmbuf_pool();
@@ -192,9 +192,20 @@ class rte_pktmbuf_pool{
 
 
         int alloc_bulk(rte_mbuf** pkts, uint16_t nb);
+        int alloc_from_cache(rte_mbuf **pkts, uint16_t nb);
         void free_bulk(rte_mbuf** pkts, uint16_t nb);
 
+        void prefill();
+        uint64_t get_stat() const { return malloc_stat; }
         uint32_t get_data_size() const {return data_size;}
+
+        template<typename F>
+            void init(F&& fun){
+                auto& head = pool.cpu_cache.head;
+                auto& ring = pool.cpu_cache.ring;
+                for(uint32_t i = 0; i < head; ++i)
+                    fun(ring[i]);
+            }
 
     private:
         /* adapted from uma cache*/
@@ -211,7 +222,7 @@ class rte_pktmbuf_pool{
            }
 
            uint32_t add(rte_mbuf** pkts, uint16_t nb){
-               auto to_cache = std::min<uint32_t>(ring.size() - head, nb);
+               auto to_cache = std::min<uint32_t>(size - head, nb);
                for(uint32_t i = 0; i < to_cache; ++i)
                    ring[head++] = pkts[i];
                return to_cache;
@@ -223,6 +234,7 @@ class rte_pktmbuf_pool{
        };
 
        uint32_t data_size;
+       uint64_t malloc_stat = 0;
        struct{
            cache<cache_size> cpu_cache;
        }pool;

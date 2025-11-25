@@ -1,6 +1,6 @@
 include ../common.gmk
 
-CXXFLAGS=-O2 -g -Wall -std=c++11 -fPIC $(COMMON) 
+CXXFLAGS=-O3 -g -Wall -std=c++11 -fPIC $(COMMON) 
 SRCS=pingpong.cc
 
 .PHONY: module

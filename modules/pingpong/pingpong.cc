@@ -23,8 +23,8 @@
 #include <vector>
 
 #include "net.hh"
+#include "osv/rcu.hh"
 #include "osv/sched.hh"
-
 
 #include <bypass/dhcp.hh>
 static constexpr uint32_t pbuf_sz = 1400;
@@ -60,6 +60,7 @@ template <typename T> static __inline void move_data(rte_mbuf *pbuf, T &data) {
 }
 struct port_config {
   pool_ptr pool;
+  pool_ptr send_pool;
   app_config app;
   rte_eth_dev *dev;
   uint64_t rt;
@@ -68,6 +69,8 @@ struct port_config {
   port_config()
       : pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("pool", pbuf_sz, 0),
              &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
+        send_pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("spool", pbuf_sz, 0),
+                  &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
         rt(300), burst_size(1) {}
 };
 
@@ -132,7 +135,8 @@ static uint16_t receive_packets_ping(port_config &pconf,
     }
 
     auto pticks = pun<payload>(pkts[i]);
-    pconf.ticks += ticks - pticks.ticks;
+    auto diff = ticks - pticks.ticks;
+    pconf.ticks += diff;
     ++pconf.pkts;
     ++total;
   }
@@ -168,22 +172,24 @@ static void do_ping(port_config &pconf) {
 
   std::vector<rte_mbuf *> pkts(burst_size, nullptr);
   std::vector<rte_mbuf *> rpkts(burst_size, nullptr);
-  //const auto max_cycles_per_it = rte_get_timer_hz();
+  // const auto max_cycles_per_it = rte_get_timer_hz();
   auto cycles = rte_get_timer_cycles();
   auto end = cycles + pconf.rt * rte_get_timer_hz();
+  pconf.send_pool->prefill();
+  pconf.send_pool->init([&](rte_mbuf *pkt) { create_packet(pconf.app, pkt); });
   for (; cycles < end; cycles = rte_get_timer_cycles()) {
     if (nb_tx) {
-      if (pconf.pool->alloc_bulk(pkts.data(), nb_tx))
+      if (pconf.send_pool->alloc_from_cache(pkts.data(), nb_tx)){
+          std::cerr << "not endough buffers" << std::endl;  
         continue;
-      for (uint16_t i = 0; i < nb_tx; ++i)
-        create_packet(pconf.app, pkts[i]);
+      }
     }
     init_packets(pkts);
     nb_tx = pconf.dev->tx_burst(0, pkts.data(), burst_size);
     sent += nb_tx;
     if (!nb_tx)
       continue;
-    //auto deadline = cycles + max_cycles_per_it;
+    // auto deadline = cycles + max_cycles_per_it;
     total = 0;
     do {
       nb_rx = pconf.dev->rx_burst(0, rpkts.data(), burst_size);
@@ -236,8 +242,8 @@ static constexpr uint16_t tu_size = 60 - sizeof(rte_eth_header);
 int main(int argc, char *argv[]) {
   std::string mode, sip, dip, dmac;
   port_config pconf;
-  sched::thread::current()->pin(sched::cpus.front());
-
+  sched::thread::current()->pin(sched::cpus.back());
+  sched::thread::current()->set_realtime_priority(1000);
   enum mode opmode = PONG;
   std::cout << "mode" << std::endl;
   std::cin >> mode;
@@ -246,8 +252,7 @@ int main(int argc, char *argv[]) {
     pconf.app.sip = inet_addr(sip.c_str());
     pconf.app.dip = inet_addr(dip.c_str());
     pconf.app.dst.parse_string(dmac.c_str());
-    pconf.app.data_len = tu_size -
-                         sizeof(ipv4_header) - sizeof(udp_header);
+    pconf.app.data_len = tu_size - sizeof(ipv4_header) - sizeof(udp_header);
     opmode = PING;
   }
   std::cout << "burst_size" << std::endl;
@@ -264,6 +269,8 @@ int main(int argc, char *argv[]) {
     do_pong(pconf);
     break;
   }
+
+  std::cerr << pconf.pool->get_stat() << std::endl;
   close_port(pconf);
   return 0;
 }

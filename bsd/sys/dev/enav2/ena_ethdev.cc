@@ -1926,8 +1926,8 @@ int ena_eth_dev::stop() {
   ena_com_dev *ena_dev = &adapter->ena_dev;
   uint16_t i;
   int rc;
-
   rte_timer_stop_sync(&adapter->timer_wd);
+  ena_log_raw(INFO, "irqs: %lu\n", adapter->irqs);
   ena_queue_stop_all(this, ENA_RING_TYPE_TX);
   ena_queue_stop_all(this, ENA_RING_TYPE_RX);
 
@@ -2573,6 +2573,7 @@ int ena_detach(ena_adapter *adapter) {
  **/
 static void ena_intr_msix_mgmnt(void *arg) {
   struct ena_adapter *adapter = static_cast<ena_adapter *>(arg);
+  adapter->irqs++;
   ena_com_admin_q_comp_intr_handler(&adapter->ena_dev);
   if (likely(adapter->state == ENA_ADAPTER_STATE_RUNNING))
     ena_com_aenq_intr_handler(&adapter->ena_dev, arg);

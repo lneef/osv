@@ -1,5 +1,6 @@
 #include <bypass/mem.hh>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <malloc.h>
 #include <new>
@@ -14,15 +15,14 @@ void rte_mbuf_raw_free(rte_mbuf* mbuf){
 }
 
 void rte_pktmbuf_free_bulk(rte_mbuf** pkts, uint16_t size){
-    for(auto i = 0; i < size; ++i)
-        pkts[i]->pool->free_bulk(&pkts[i], 1);
-}
-void rte_pktmbuf_read(rte_mbuf*, uint32_t, uint32_t, uint8_t*){
-
+    if(!size)
+        return;
+    pkts[0]->pool->free_bulk(pkts, size);
 }
 
-void rte_pktmbuf_read(const rte_mbuf *m, uint32_t off,
-	uint32_t len, void *buf)
+
+void rte_pktmbuf_read(rte_mbuf *m, uint32_t off,
+	uint32_t len, uint8_t *buf)
 {
     uint32_t buf_off = 0;
     for(auto* seg = m; len > 0 && seg;  seg = seg->next){
@@ -55,6 +55,15 @@ rte_pktmbuf_pool::rte_pktmbuf_pool(const char* name, uint32_t size, uint32_t ele
     (void)flags;
 }
 
+void rte_pktmbuf_pool::prefill(){
+    auto& head = pool.cpu_cache.head;
+    auto& ring = pool.cpu_cache.ring;
+    for(; head < cache_size; ++head){
+        ring[head] = static_cast<rte_mbuf*>(aligned_alloc(cl_size, data_size + sizeof(rte_mbuf)));
+        mb_ctor_buf(ring[head], 0, this, 0);
+    }
+    static_assert(cache_size > 1024, "too small");
+}
 
 rte_pktmbuf_pool::~rte_pktmbuf_pool() = default;
 
@@ -71,9 +80,18 @@ void rte_pktmbuf_pool::rte_pktmbuf_pool_delete(rte_pktmbuf_pool *pb_pool){
     free(pb_pool);
 }
 
+int rte_pktmbuf_pool::alloc_from_cache(rte_mbuf **pkts, uint16_t nb){
+    uint16_t i = pool.cpu_cache.get(pkts, nb);
+    if(i < nb){
+        free_bulk(pkts,  nb);
+        return ENOMEM;
+    }
+    return 0;
+}
 
 int rte_pktmbuf_pool::alloc_bulk(struct rte_mbuf** pkts, uint16_t nb){
     uint16_t i = pool.cpu_cache.get(pkts, nb);
+    malloc_stat += nb - i;
     for(; i < nb; ++i){
         pkts[i] = static_cast<rte_mbuf*>(aligned_alloc(cl_size, data_size + sizeof(rte_mbuf)));
         if(!pkts[i])
