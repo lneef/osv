@@ -85,6 +85,7 @@ typedef struct {
 #define mmiowb rte_io_wmb
 #define __iomem
 
+#if 0
 #define	barrier() __asm__ __volatile__("": : :"memory")
 #define ACCESS_ONCE(var) (*((volatile typeof(var) *)(&(var))))
 #define READ_ONCE(x)  ({			\
@@ -94,6 +95,7 @@ typedef struct {
 			barrier();		\
 			__var;			\
 		})
+#endif
 #ifndef READ_ONCE
 #define READ_ONCE(var) (*((volatile typeof(var) *)(&(var))))
 #endif
@@ -286,7 +288,7 @@ ena_dma_alloc(rte_eth_dev_data *dmadev, bus_size_t size, ena_mem_handle_t *dma,
 	dmadev, size, virt, phys, mem_handle, alignment)		 \
   	do {								\
 		ena_dma_alloc(static_cast<rte_eth_dev_data*>(dmadev), (size), &mem_handle, 0, (alignment), -1);					\
-		(virt) = reinterpret_cast<typeof(virt)>(mem_handle.vaddr);	\
+		(virt) = reinterpret_cast<decltype(virt)>(mem_handle.vaddr);	\
 		(phys) = mem_handle.paddr;					\
 	} while (0)
 

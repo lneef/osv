@@ -137,12 +137,11 @@ static void create_packet(const app_config& config, rte_mbuf *pkt){
 
     pkt->pkt_len = sizeof(*eth) + len;
     pkt->data_len = sizeof(*eth) + len;
-
+    pkt->nb_segs = 1;
     udp->dgram_cksum = 0;
     ipv4->hdr_checksum = 0;
-    udp->dgram_cksum = phdr_cksum(ipv4, udp);
-    pkt->nb_segs = 1;
     pkt->ol_flags = RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_UDP_CKSUM | RTE_MBUF_F_TX_IPV4;
+
 }
 
 static bool verify_packet(const rte_mbuf* pkt){

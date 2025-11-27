@@ -13,6 +13,7 @@
 #include "osv/msi.hh"
 #include "osv/osv_c_wrappers.h"
 #include "osv/virt_to_phys.hh"
+#include "processor.hh"
 
 #include <api/bypass/bit.hh>
 #include <api/bypass/defs.hh>
@@ -1326,7 +1327,7 @@ static int ena_set_queues_placement_policy(
     return 0;
 
   adapter->dev_mem->map();
-  ena_dev->mem_bar = const_cast<void *>(adapter->dev_mem->get_mmio());
+  ena_dev->mem_bar = const_cast<void*>(adapter->dev_mem->get_mmio());
 
   return 0;
 }
@@ -2343,7 +2344,7 @@ bool ena_probe(pci::device *pdev) {
   ena_vendor_info_t *ent = ena_vendor_info_array;
   while (ent->vendor_id != 0) {
     if (pdev->get_id() == hw_device_id(ent->vendor_id, ent->device_id)) {
-      ena_log_raw(INFO, "vendor=%x device=%x", ent->vendor_id, ent->device_id);
+      ena_log_raw(INFO, "vendor=%x device=%x\n", ent->vendor_id, ent->device_id);
 
       return true;
     }
@@ -2387,8 +2388,7 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter) {
     return -ENXIO;
   }
   adapter->regs->map();
-  ena_dev->reg_bar =
-      static_cast<u8 *>(const_cast<void *>(adapter->regs->get_mmio()));
+  ena_dev->reg_bar = static_cast<u8*>(const_cast<void*>(adapter->regs->get_mmio()));
   /* Pass device data as a pointer which can be passed to the IO functions
    * by the ena_com (for example - the memory allocation).
    */

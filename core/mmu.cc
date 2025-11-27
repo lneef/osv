@@ -5,8 +5,12 @@
  * BSD license as described in the LICENSE file in the top-level directory.
  */
 
+#include <cassert>
+#include <cstdint>
 #include <osv/mmu.hh>
 #include <osv/mempool.hh>
+#include "arch-mmu.hh"
+#include "osv/mmu-defs.hh"
 #include "processor.hh"
 #include <osv/debug.hh>
 #include "exceptions.hh"
@@ -158,6 +162,23 @@ void* phys_to_virt(phys pa)
     return phys_mem + pa;
 }
 
+template<int N>
+uintptr_t walk_level(hw_ptep<N> ptep, uintptr_t addr){
+    auto pt = ptep.read();
+    if(pt.empty())
+        return 0;
+    if(pt.large())
+        return pt.addr();
+    auto ptep_table = mmu::hw_ptep<N-1>::force(phys_cast<mmu::pt_element<N-1>>(pt.next_pt_addr()));
+    auto n_ptep = ptep_table.at(mmu::pt_index(reinterpret_cast<void*>(addr), N - 1)) ;
+    return walk_level<N-1>(n_ptep, addr);
+}
+
+template <>
+uintptr_t walk_level<0>(hw_ptep<0> ptep, uintptr_t addr){
+    return ptep.read().addr();
+}
+
 phys virt_to_phys_pt(void* virt);
 
 phys virt_to_phys(void *virt)
@@ -179,7 +200,11 @@ phys virt_to_phys(void *virt)
 
     // For now, only allow non-mmaped areas.  Later, we can either
     // bounce such addresses, or lock them in memory and translate
-    assert(virt >= phys_mem);
+    if(virt < phys_mem){
+        auto addr = reinterpret_cast<uintptr_t>(virt);
+        auto* root_pt = mmu::get_root_pt(addr);
+        return walk_level(mmu::hw_ptep<4>::force(root_pt), addr);
+    }
     return reinterpret_cast<uintptr_t>(virt) & (mem_area_size - 1);
 }
 

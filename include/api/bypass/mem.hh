@@ -1,8 +1,13 @@
 #ifndef BYPASS_MEM_H
 #define BYPASS_MEM_H
 
+#include <cstddef>
+#include "osv/contiguous_alloc.hh"
+#include <cassert>
 #include <cstdint>
-#include <array>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
 
 #define RTE_MBUF_F_RX_VLAN          (1ULL << 0)
  
@@ -169,7 +174,7 @@ uint16_t l2_len, l3_len, l4_len, nb_segs, packet_type;
     }hash;
     rte_pktmbuf_pool* pool;
     rte_mbuf* next;
-    alignas(uint64_t) char buf[];
+    char* buf;
 };
 
 #define rte_pktmbuf_mtod(m, t) reinterpret_cast<t>(m->buf)
@@ -180,64 +185,59 @@ using rte_mempool = rte_pktmbuf_pool;
 class rte_pktmbuf_pool{
     public:
         static constexpr uint32_t cache_size = 4095;
-        rte_pktmbuf_pool(const char* name, uint32_t size, uint32_t elems, uint32_t flags);
+        rte_pktmbuf_pool(const char* name, uint32_t size, uint32_t elems, uint32_t flags): pool(size, elems), data_size(elems) {
+            (void)name;
+            (void)flags;
+        }
 
         ~rte_pktmbuf_pool();
 
         rte_pktmbuf_pool(const rte_pktmbuf_pool&) = delete;
         rte_pktmbuf_pool(rte_pktmbuf_pool&&) noexcept = delete;
 
-        static rte_pktmbuf_pool* rte_pktmbuf_pool_create(const char* name, uint32_t size, uint32_t flags);
+        static rte_pktmbuf_pool* rte_pktmbuf_pool_create(const char* name, uint32_t size, uint32_t elems, uint32_t flags);
         static void rte_pktmbuf_pool_delete(rte_pktmbuf_pool* pb_pool);
 
 
         int alloc_bulk(rte_mbuf** pkts, uint16_t nb);
-        int alloc_from_cache(rte_mbuf **pkts, uint16_t nb);
         void free_bulk(rte_mbuf** pkts, uint16_t nb);
 
-        void prefill();
         uint64_t get_stat() const { return malloc_stat; }
         uint32_t get_data_size() const {return data_size;}
 
         template<typename F>
             void init(F&& fun){
-                auto& head = pool.cpu_cache.head;
-                auto& ring = pool.cpu_cache.ring;
-                for(uint32_t i = 0; i < head; ++i)
-                    fun(ring[i]);
+                for(auto& m : pool.header)
+                    fun(m);
             }
 
     private:
-        /* adapted from uma cache*/
-        template<uint32_t size>
-       struct cache{
-           uint32_t head = 0;
-           std::array<rte_mbuf*, size> ring;
-
-           uint32_t get(rte_mbuf** pkts, uint16_t nb){
-               auto from_cache = std::min<uint32_t>(nb, head);
-               for(uint32_t i = 0; i < from_cache; ++i)
-                   pkts[i] = ring[--head];
-               return from_cache;
-           }
-
-           uint32_t add(rte_mbuf** pkts, uint16_t nb){
-               auto to_cache = std::min<uint32_t>(size - head, nb);
-               for(uint32_t i = 0; i < to_cache; ++i)
-                   ring[head++] = pkts[i];
-               return to_cache;
-           }
-           ~cache(){
-               for(uint32_t i = 0; i < head; ++i)
-                   free(ring[i]);
-           }
-       };
+        struct PoolImpl{
+            static constexpr uint32_t cl_size = 64;
+            std::vector<rte_mbuf*> header;
+            std::vector<rte_mbuf> header_pool;
+            char* pool;
+            uint64_t head;
+            PoolImpl(uint32_t size, uint32_t elems): header(elems, nullptr), header_pool(elems), head(0){
+                uint32_t i = 0;
+                pool = static_cast<char*>(memory::alloc_phys_contiguous_aligned(size * elems, cl_size));
+                memset(pool, 0, size * elems);
+                for(auto& m: header){
+                    m = &header_pool[i];
+                    m->buf = static_cast<char*>(pool + i * size);
+                    ++i;
+                }
+            }
+            rte_mbuf* get() { return header[head++];}
+            void put(rte_mbuf* m) { header[--head] = m; }
+            bool can(uint16_t nb) {return (header.size() - head) > nb; }
+            ~PoolImpl(){ 
+                memory::free_phys_contiguous_aligned(pool);
+            }
+        }pool;
 
        uint32_t data_size;
        uint64_t malloc_stat = 0;
-       struct{
-           cache<cache_size> cpu_cache;
-       }pool;
 };
 
 #endif // !BYPASS_MEM_H

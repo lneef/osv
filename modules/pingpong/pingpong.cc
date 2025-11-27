@@ -3,6 +3,7 @@
 #include <bypass/mem.hh>
 #include <bypass/net.hh>
 #include <bypass/time.hh>
+#include <bypass/util.hh>
 #include <cerrno>
 #include <cstdint>
 
@@ -18,16 +19,20 @@
 #include <memory>
 #include <ostream>
 #include <sched.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <utility>
 #include <vector>
-
+#include <signal.h>
 #include "net.hh"
-#include "osv/rcu.hh"
+#include "osv/mmu-defs.hh"
+#include "osv/mmu.hh"
+#include "osv/pagealloc.hh"
 #include "osv/sched.hh"
+#include "osv/virt_to_phys.hh"
 
 #include <bypass/dhcp.hh>
-static constexpr uint32_t pbuf_sz = 1400;
+static constexpr uint32_t pbuf_sz = 2048;
 
 #define SWAP(val1, val2)                                                       \
   do {                                                                         \
@@ -45,6 +50,12 @@ struct payload {
   uint64_t ticks;
 };
 
+static volatile int terminate = 0;
+static void handler(int sig) {
+  (void)sig;
+  terminate = 1;
+}
+
 template <typename T> static __inline T pun(rte_mbuf *pbuf) {
   char *data = pbuf->buf + sizeof(ipv4_header) + sizeof(udp_header) +
                sizeof(rte_eth_header);
@@ -58,6 +69,11 @@ template <typename T> static __inline void move_data(rte_mbuf *pbuf, T &data) {
                    sizeof(rte_eth_header);
   memcpy(data_ptr, &data, sizeof(T));
 }
+
+template<typename T> static __inline void prefetch(rte_mbuf *pbuf, T& data){
+    rte_prefetch0_write(pbuf->buf + sizeof(ipv4_header) + sizeof(udp_header) + sizeof(rte_eth_header));
+}
+
 struct port_config {
   pool_ptr pool;
   pool_ptr send_pool;
@@ -67,9 +83,9 @@ struct port_config {
   uint16_t burst_size;
   uint64_t ticks = 0, pkts = 0, faulty = 0;
   port_config()
-      : pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("pool", pbuf_sz, 0),
+      : pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("pool", pbuf_sz, 4095, 0),
              &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
-        send_pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("spool", pbuf_sz, 0),
+        send_pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("spool", pbuf_sz, 4095, 0),
                   &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
         rt(300), burst_size(1) {}
 };
@@ -115,10 +131,10 @@ static int configure_port(port_config &pconf) {
 }
 
 static void init_packets(const std::vector<rte_mbuf *> &pkts) {
-  payload payload;
-  payload = {static_cast<uint64_t>(rte_get_timer_cycles())};
-  for (auto *pkt : pkts)
+  payload payload{static_cast<uint64_t>(rte_get_timer_cycles())};
+  for (auto *pkt : pkts){
     move_data(pkt, payload);
+  }
 }
 
 static void close_port(port_config &pconf) { pconf.dev->stop(); }
@@ -144,13 +160,14 @@ static uint16_t receive_packets_ping(port_config &pconf,
   return total;
 }
 
-static int receive_packets_pong(rte_mbuf *pkt) {
+static int receive_packets_pong(port_config& pconf, rte_mbuf *pkt) {
   if (!verify_packet(pkt))
     return -1;
   rte_eth_header *eth = reinterpret_cast<rte_eth_header *>(pkt->buf);
   ipv4_header *ipv4 = reinterpret_cast<ipv4_header *>(eth + 1);
   udp_header *udp = reinterpret_cast<udp_header *>(ipv4 + 1);
-  std::swap(eth->dst, eth->src);
+  eth->dst = eth->src;
+  eth->src = pconf.app.src;
   SWAP(ipv4->dst_addr, ipv4->src_addr);
   SWAP(udp->dst_port, udp->src_port);
   udp->dgram_cksum = 0;
@@ -161,7 +178,6 @@ static int receive_packets_pong(rte_mbuf *pkt) {
   pkt->l4_len = sizeof(*udp);
   pkt->ol_flags =
       RTE_MBUF_F_TX_UDP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_IP_CKSUM;
-  udp->dgram_cksum = phdr_cksum(ipv4, udp);
   return 0;
 }
 
@@ -175,12 +191,11 @@ static void do_ping(port_config &pconf) {
   // const auto max_cycles_per_it = rte_get_timer_hz();
   auto cycles = rte_get_timer_cycles();
   auto end = cycles + pconf.rt * rte_get_timer_hz();
-  pconf.send_pool->prefill();
   pconf.send_pool->init([&](rte_mbuf *pkt) { create_packet(pconf.app, pkt); });
   for (; cycles < end; cycles = rte_get_timer_cycles()) {
     if (nb_tx) {
-      if (pconf.send_pool->alloc_from_cache(pkts.data(), nb_tx)){
-          std::cerr << "not endough buffers" << std::endl;  
+      if (pconf.send_pool->alloc_bulk(pkts.data(), nb_tx)){
+          std::cerr << "not enough buffers" << std::endl;  
         continue;
       }
     }
@@ -217,13 +232,11 @@ static void do_pong(port_config &pconf) {
   uint16_t nb_rm = 0;
   std::vector<rte_mbuf *> pkts(burst_size, nullptr);
   std::vector<rte_mbuf *> rpkts(burst_size, nullptr);
-  auto cycles = rte_get_timer_cycles();
-  auto end = cycles + pconf.rt * rte_get_timer_hz();
-  for (; rte_get_timer_cycles() < end;) {
+  for (; !terminate;) {
     nb_rx = pconf.dev->rx_burst(0, rpkts.data(), burst_size - nb_rm);
     for (uint16_t i = 0; i < nb_rx; ++i) {
       pkts[nb_rm] = rpkts[i];
-      if (!receive_packets_pong(pkts[nb_rm]))
+      if (!receive_packets_pong(pconf, pkts[nb_rm]))
         ++nb_rm;
     }
     nb_tx = pconf.dev->tx_burst(0, pkts.data(), nb_rm);
@@ -240,10 +253,13 @@ enum mode { PING, PONG };
 static constexpr uint16_t tu_size = 60 - sizeof(rte_eth_header);
 
 int main(int argc, char *argv[]) {
+  struct sigaction sa{};
+  sa.sa_handler = handler;
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
   std::string mode, sip, dip, dmac;
   port_config pconf;
-  sched::thread::current()->pin(sched::cpus.back());
-  sched::thread::current()->set_realtime_priority(1000);
+  sched::thread::current()->pin(sched::cpus.front());
   enum mode opmode = PONG;
   std::cout << "mode" << std::endl;
   std::cin >> mode;

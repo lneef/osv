@@ -18,7 +18,6 @@
 #define rte_prefetch0(a) __builtin_prefetch(a, 0, 0)
 #define rte_prefetch0_write(a) __builtin_prefetch(a, 1, 0)
 
-
 using rte_atomic32_t = std::atomic<uint32_t>;
 using rte_atomic64_t = std::atomic<uint32_t>;
 
