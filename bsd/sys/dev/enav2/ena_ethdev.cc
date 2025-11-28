@@ -23,7 +23,7 @@
 #include <api/bypass/rss.hh>
 #include <api/bypass/time.hh>
 #include <api/bypass/util.hh>
-
+#include <osv/trace.hh>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -2131,8 +2131,11 @@ int ena_eth_dev::rx_queue_setup(uint16_t qid, uint16_t nb_desc,
   return 0;
 }
 
+TRACEPOINT(trace_ena_eth_dev_tx_burst, "qid=%x, tx_pkts=%y, nb_pkts=%z", uint16_t, rte_mbuf**, uint16_t);
+TRACEPOINT(trace_ena_eth_dev_tx_burst_ret, "");
 uint16_t ena_eth_dev::tx_burst(uint16_t qid, rte_mbuf **tx_pkts,
                                uint16_t nb_pkts) {
+  trace_ena_eth_dev_tx_burst(qid, tx_pkts, nb_pkts);  
   if (qid >= data.nb_tx_queues)
     return 0;
   ena_ring *tx_ring = static_cast<ena_ring *>(data.tx_queues[qid]);
@@ -2173,8 +2176,11 @@ uint16_t ena_eth_dev::tx_burst(uint16_t qid, rte_mbuf **tx_pkts,
   return sent_idx;
 }
 
+TRACEPOINT(trace_ena_eth_dev_rx_burst, "qid=%x, rx_pkts=%y, nb_pkts=%z", uint16_t, rte_mbuf**, uint16_t);
+TRACEPOINT(trace_ena_eth_dev_rx_burst_ret, "");
 uint16_t ena_eth_dev::rx_burst(uint16_t qid, rte_mbuf **rx_pkts,
                                uint16_t nb_pkts) {
+  trace_ena_eth_dev_rx_burst(qid, rx_pkts, nb_pkts);  
   if (qid >= data.nb_rx_queues)
     return 0;
   ena_ring *rx_ring = static_cast<ena_ring *>(data.rx_queues[qid]);
@@ -2267,7 +2273,7 @@ uint16_t ena_eth_dev::rx_burst(uint16_t qid, rte_mbuf **rx_pkts,
   if (free_queue_entries >= rx_ring->rx_free_thresh) {
     ena_populate_rx_queue(rx_ring, free_queue_entries);
   }
-
+  trace_ena_eth_dev_rx_burst_ret();
   return completed;
 }
 

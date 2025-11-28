@@ -6,6 +6,7 @@
 #include <new>
 #include <bsd/porting/netport.h>
 #include <cerrno>
+#include <osv/trace.hh>
 
 void rte_pktmbuf_free(rte_mbuf* mbuf){
     mbuf->pool->free_bulk(&mbuf, 1);
@@ -62,7 +63,10 @@ void rte_pktmbuf_pool::rte_pktmbuf_pool_delete(rte_pktmbuf_pool *pb_pool){
 }
 
 
+TRACEPOINT(trace_rte_pktmbuf_pool_alloc_bulk, "pkts=%x, nb=%y", rte_mbuf**, uint16_t);
+TRACEPOINT(trace_rte_pktmbuf_pool_alloc_bulk_ret, "");
 int rte_pktmbuf_pool::alloc_bulk(struct rte_mbuf** pkts, uint16_t nb){
+    trace_rte_pktmbuf_pool_alloc_bulk(pkts, nb);
     uint16_t i;
     if(!pool.can(nb))
         return -ENOMEM;
@@ -70,6 +74,7 @@ int rte_pktmbuf_pool::alloc_bulk(struct rte_mbuf** pkts, uint16_t nb){
         pkts[i] = pool.get();
         mb_ctor_buf(pkts[i], 0, this, 0);
     }
+    trace_rte_pktmbuf_pool_alloc_bulk_ret();
     return 0;
 
 }
