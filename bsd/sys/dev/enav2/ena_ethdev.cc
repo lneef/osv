@@ -977,7 +977,7 @@ static int ena_add_single_rx_desc(struct ena_com_io_sq *io_sq,
   int rc;
 
   /* prepare physical address for DMA transaction */
-  ebuf.paddr = mmu::virt_to_phys(mbuf->buf);
+  ebuf.paddr = mbuf->iova;
   ebuf.len = mbuf->buf_len;
 
   /* pass resource to device */
@@ -1694,7 +1694,7 @@ static void ena_tx_map_mbuf(ena_ring *tx_ring, ena_tx_buffer *tx_info,
   }
 
   if (seg_len > push_len) {
-    ena_buf->paddr = mmu::virt_to_phys(mbuf->buf) + push_len;
+    ena_buf->paddr = mbuf->iova + push_len;
     ena_buf->len = seg_len - push_len;
     ena_buf++;
     tx_info->num_of_bufs++;
@@ -1709,7 +1709,7 @@ static void ena_tx_map_mbuf(ena_ring *tx_ring, ena_tx_buffer *tx_info,
       continue;
     }
 
-    ena_buf->paddr = mmu::virt_to_phys(mbuf->buf) + delta;
+    ena_buf->paddr = mbuf->iova + delta;
     ena_buf->len = seg_len - delta;
     ena_buf++;
     tx_info->num_of_bufs++;

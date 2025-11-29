@@ -4,6 +4,7 @@
 #include <bypass/net.hh>
 #include <bypass/time.hh>
 #include <bypass/util.hh>
+#include <cassert>
 #include <cerrno>
 #include <cstdint>
 
@@ -12,6 +13,7 @@
 #include <api/bypass/mem.hh>
 #include <bypass/defs.hh>
 #include <cstring>
+#include <ctime>
 #include <endian.h>
 #include <features.h>
 #include <getopt.h>
@@ -25,14 +27,17 @@
 #include <vector>
 #include <signal.h>
 #include "net.hh"
+#include "osv/clock.hh"
+#include "osv/contiguous_alloc.hh"
 #include "osv/mmu-defs.hh"
 #include "osv/mmu.hh"
 #include "osv/pagealloc.hh"
 #include "osv/sched.hh"
 #include "osv/virt_to_phys.hh"
+#include "processor.hh"
 
 #include <bypass/dhcp.hh>
-static constexpr uint32_t pbuf_sz = 2048;
+static constexpr uint32_t pbuf_sz = 1400;
 
 #define SWAP(val1, val2)                                                       \
   do {                                                                         \
@@ -184,7 +189,6 @@ static int receive_packets_pong(port_config& pconf, rte_mbuf *pkt) {
 static void do_ping(port_config &pconf) {
   uint16_t nb_rx = 0, burst_size = 1, total = 0;
   uint16_t nb_tx = burst_size;
-  uint64_t sent = 0;
 
   std::vector<rte_mbuf *> pkts(burst_size, nullptr);
   std::vector<rte_mbuf *> rpkts(burst_size, nullptr);
@@ -193,24 +197,19 @@ static void do_ping(port_config &pconf) {
   auto end = cycles + pconf.rt * rte_get_timer_hz();
   pconf.send_pool->init([&](rte_mbuf *pkt) { create_packet(pconf.app, pkt); });
   for (; cycles < end; cycles = rte_get_timer_cycles()) {
-    if (nb_tx) {
       if (pconf.send_pool->alloc_bulk(pkts.data(), nb_tx)){
           std::cerr << "not enough buffers" << std::endl;  
-        continue;
-      }
+          continue;
     }
     init_packets(pkts);
     nb_tx = pconf.dev->tx_burst(0, pkts.data(), burst_size);
-    sent += nb_tx;
-    if (!nb_tx)
-      continue;
     // auto deadline = cycles + max_cycles_per_it;
     total = 0;
     do {
       nb_rx = pconf.dev->rx_burst(0, rpkts.data(), burst_size);
       if (nb_rx)
         total += receive_packets_ping(pconf, rpkts, nb_rx);
-    } while (total < nb_tx);
+    } while (total < nb_tx && rte_get_timer_cycles() < end);
   }
 
   std::cout << "Latency:"
@@ -219,7 +218,6 @@ static void do_ping(port_config &pconf) {
             << std::endl;
   std::cout << "PPS:" << static_cast<double>(pconf.pkts) / pconf.rt
             << std::endl;
-  std::cout << "Total pkts sent:" << sent << std::endl;
 }
 
 static void do_pong(port_config &pconf) {
