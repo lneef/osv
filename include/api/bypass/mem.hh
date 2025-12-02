@@ -3,16 +3,15 @@
 
 
 
-#include <cstddef>
-#include <cstdint>
 
-#include "osv/types.h"
 #include "osv/mmu-defs.hh"
 #include "osv/pagealloc.hh"
 #include "osv/virt_to_phys.hh"
+#include <osv/types.h>
 #include <array>
 #include <cassert>
 #include <vector>
+#include <cstdint>
 
 #define RTE_MBUF_F_RX_VLAN (1ULL << 0)
 
@@ -266,15 +265,15 @@ private:
   struct PoolImpl {
     static constexpr uint32_t cl_size = 64;
     std::vector<rte_mbuf *> header;
-    std::vector<rte_mbuf> header_pool;
     pageheader *pages;
     uint64_t head;
     PoolImpl(uint32_t size, uint32_t elems)
         : header(elems, nullptr), header_pool(elems), pages(nullptr), head(0) {
       uint64_t offset = mmu::huge_page_size;
+      uint64_t alloc_size = align<uint64_t, 64>(sizeof(rte_mbuf) + size); 
       uint32_t i = 0;
       for (auto &m : header) {
-        if(mmu::huge_page_size - offset < size){
+        if(mmu::huge_page_size - offset < alloc_size){
             auto *page = memory::alloc_huge_page(mmu::huge_page_size);
             auto *header = static_cast<pageheader*>(page);
             header->next = pages;
@@ -284,10 +283,10 @@ private:
             offset = sizeof(pageheader);
         }  
         m = &header_pool[i];
-        m->buf = reinterpret_cast<char*>(pages) + offset;
-        m->iova = pages->phys + offset;
+        m->buf = reinterpret_cast<char*>(pages) + offset + sizeof(rte_mbuf);
+        m->iova = pages->phys + offset + sizeof(rte_mbuf);
         ++i;
-        offset += size;
+        offset += alloc_size;
       }
     }
     rte_mbuf *get() { return header[head++]; }
