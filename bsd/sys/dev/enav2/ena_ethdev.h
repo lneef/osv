@@ -316,7 +316,7 @@ struct __rte_cache_aligned ena_adapter {
 	u16 max_mtu;
 	struct ena_offloads offloads;
 
-  uint64_t irqs = 0;
+  std::atomic<uint64_t> irqs{};
 
 	/* The admin queue isn't protected by the lock and is used to
 	 * retrieve statistics from the device. As there is no guarantee that

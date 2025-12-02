@@ -90,7 +90,7 @@ struct port_config {
   port_config()
       : pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("pool", pbuf_sz, 4095, 0),
              &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
-        send_pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("spool", pbuf_sz, 4095, 0),
+        send_pool(rte_pktmbuf_pool::rte_pktmbuf_pool_create("spool", pbuf_sz, 2047, 0),
                   &rte_pktmbuf_pool::rte_pktmbuf_pool_delete),
         rt(300), burst_size(1) {}
 };

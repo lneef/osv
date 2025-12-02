@@ -4,7 +4,7 @@
  * This work is open source software, licensed under the terms of the
  * BSD license as described in the LICENSE file in the top-level directory.
  */
-
+#include <osv/types.h>
 #include <osv/sched.hh>
 #include <list>
 #include <osv/mutex.h>
@@ -388,11 +388,11 @@ void cpu::reschedule_from_interrupt(bool called_from_yield,
                 auto& t = *runqueue.begin();
                 auto delta = n->_runtime.time_until(t._runtime.get_local());
                 if (delta > 0) {
-                    preemption_timer.set_with_irq_disabled(now + delta);
+                    preemption_timer.set_with_irq_disabled(now + delta * 8192 * 128);
                 }
             }
         } else {
-            preemption_timer.set_with_irq_disabled(now + preempt_after);
+            preemption_timer.set_with_irq_disabled(now + preempt_after * 8192 * 128);
         }
     }
 

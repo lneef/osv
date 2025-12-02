@@ -1255,6 +1255,7 @@ static void ena_timer_wd_callback(void *arg) {
 
   if (unlikely(adapter->trigger_reset))
     return;
+  adapter->irqs++;
 
   check_for_missing_keep_alive(adapter);
   check_for_admin_com_state(adapter);
@@ -1913,6 +1914,7 @@ int ena_eth_dev::start() {
     data.rx_queue_state[i] = RTE_ETH_QUEUE_STATE_STARTED;
   for (i = 0; i < data.nb_tx_queues; i++)
     data.tx_queue_state[i] = RTE_ETH_QUEUE_STATE_STARTED;
+  adapter->irqs = 0;
   return 0;
 
 err_rss_init:
@@ -1928,7 +1930,7 @@ int ena_eth_dev::stop() {
   uint16_t i;
   int rc;
   rte_timer_stop_sync(&adapter->timer_wd);
-  ena_log_raw(INFO, "irqs: %lu\n", adapter->irqs);
+  ena_log_raw(INFO, "irqs: %lu\n", adapter->irqs.load());
   ena_queue_stop_all(this, ENA_RING_TYPE_TX);
   ena_queue_stop_all(this, ENA_RING_TYPE_RX);
 

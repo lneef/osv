@@ -17,11 +17,11 @@ void rte_delay_us_block(unsigned int us) {
   const auto end = rte_get_timer_cycles() + us * rte_get_timer_hz() / US_PER_S;
   while (rte_get_timer_cycles() < end)
 #ifdef __x86_64__
-    __asm __volatile("pause");
+   ;// __asm __volatile("pause");
 #endif
 #ifdef __aarch64__
   __asm __volatile("isb sy");
 #endif
 }
 
-void rte_delay_us_sleep(unsigned int us) { usleep(us); }
+void rte_delay_us_sleep(unsigned int us) { rte_delay_us_block(us); }
