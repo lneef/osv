@@ -268,7 +268,7 @@ private:
     pageheader *pages;
     uint64_t head;
     PoolImpl(uint32_t size, uint32_t elems)
-        : header(elems, nullptr), header_pool(elems), pages(nullptr), head(0) {
+        : header(elems, nullptr), pages(nullptr), head(0) {
       uint64_t offset = mmu::huge_page_size;
       uint64_t alloc_size = align<uint64_t, 64>(sizeof(rte_mbuf) + size); 
       uint32_t i = 0;
@@ -282,8 +282,9 @@ private:
             pages = header;
             offset = sizeof(pageheader);
         }  
-        m = &header_pool[i];
-        m->buf = reinterpret_cast<char*>(pages) + offset + sizeof(rte_mbuf);
+        auto *data = reinterpret_cast<char*>(pages);
+        m = reinterpret_cast<rte_mbuf*>(data + offset);
+        m->buf = data + offset + sizeof(rte_mbuf);
         m->iova = pages->phys + offset + sizeof(rte_mbuf);
         ++i;
         offset += alloc_size;
