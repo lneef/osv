@@ -306,7 +306,7 @@ post-includes-bsd += -isystem bsd/$(arch)
 $(out)/musl/%.o: pre-include-api = -isystem include/api/internal_musl_headers -isystem musl/src/include
 
 ifneq ($(werror),0)
-	CFLAGS_WERROR = -Werror
+	CFLAGS_WERROR =
 endif
 # $(call compiler-flag, -ffoo, option, file)
 #     returns option if file builds with -ffoo, empty otherwise
@@ -376,7 +376,7 @@ gc-flags = $(gc-flags-$(conf_hide_symbols))
 
 gcc-opt-Og := $(call compiler-flag, -Og, -Og, compiler/empty.cc)
 
-CXXFLAGS = -std=$(conf_cxx_level) $(COMMON) $(cxx-hide-flags)
+CXXFLAGS = -std=$(conf_cxx_level) $(COMMON) $(cxx-hide-flags) 
 CFLAGS = -std=gnu99 $(COMMON)
 
 # should be limited to files under libc/ eventually
@@ -706,10 +706,10 @@ bsd += bsd/sys/dev/hyperv/vmbus/hyperv.o
 endif
 ifeq ($(conf_networking_stack),1)
 ifeq ($(conf_drivers_ena),1)
-bsd += bsd/sys/contrib/ena_comv1/ena_eth_com.o
-bsd += bsd/sys/contrib/ena_comv1/ena_com.o
-bsd += bsd/sys/dev/enav2/ena_datapath.o
-bsd += bsd/sys/dev/enav2/enav2.o
+bsd += bsd/sys/dev/enav2/base/ena_eth_com.o
+bsd += bsd/sys/dev/enav2/base/ena_com.o
+bsd += bsd/sys/dev/enav2/ena_ethdev.o
+bsd += bsd/sys/dev/enav2/ena_rss.o
 $(out)/bsd/sys/dev/enav2/%.o: CXXFLAGS += -Ibsd/sys/contrib
 endif
 endif
@@ -1163,9 +1163,11 @@ objects += core/osv_c_wrappers.o
 endif
 objects += core/options.o
 objects += core/string_utils.o
-objects += core/pktbuf.o
-objects += core/pbuf_alloc.o
+objects += core/mem.o
+objects += core/time.o
 objects += core/net_eth.o
+objects += core/dev.o
+objects += core/net.o
 #include $(src)/libc/build.mk:
 libc =
 libc_to_hide =

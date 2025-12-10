@@ -1,25 +1,18 @@
-#include <cstdint>
-#include <api/bypass/net_eth.hh>
+#include <api/bypass/dev.hh>
 #include <osv/export.h>
 #include <osv/clock.hh>
-eth_os ports;
 
 
-void eth_os::register_port(uint16_t port, eth_dev *dev){ 
-    auto& pinfo = ports.ports_info[port];
-    pinfo.configured = 1;
-    pinfo.dev = dev;
+eth_os eth_os::instance;
+
+
+void eth_os::register_port(rte_eth_dev *dev){ 
+    instance.ifs.push_back(dev);
 }
 
-
-eth_dev* eth_dev::get_eth_for_port(uint16_t port){
-    if(port >= MAX_ETH_PORTS || !ports.ports_info[port].configured)
+rte_eth_dev* eth_os::get_eth_for_port(uint16_t port){
+    if(instance.ifs.size() <= port)
         return nullptr;
-    else
-        return ports.ports_info[port].dev;
+    return instance.ifs[port];
 }
 
-extern "C" OSV_MODULE_API 
-uint64_t get_ns(){
-    return osv::clock::uptime::now().time_since_epoch().count();
-}
