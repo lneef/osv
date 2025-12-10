@@ -1,5 +1,7 @@
 #ifndef NET_ETH_DEF_H
 #define NET_ETH_DEF_H
+
+#include <osv/types.h>
 #include <api/bypass/rss.hh>
 #include <bypass/net.hh>
 #include <cstdint>

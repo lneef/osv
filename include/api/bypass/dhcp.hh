@@ -1,17 +1,28 @@
 #ifndef BYPASS_DHCP_HH
 #define BYPASS_DHCP_HH
 
+#include <asm-generic/errno.h>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/address_v4.hpp>
+#include <boost/optional/optional.hpp>
 #include <bypass/dev.hh>
 #include <bypass/mem.hh>
+#include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <osv/dhcp.hh>
 #include <sys/param.h>
 #include <tuple>
 
 #include <bypass/net.hh>
+
+template<int log_level = 4, typename S, typename ...Args>
+void dhcp_log(S&& str, Args&&... args){
+    if constexpr(log_level < 4){
+        fprintf(stderr, str, args...);
+    }
+}
 class dhcp_buf {
 public:
   typedef std::tuple<boost::asio::ip::address_v4, boost::asio::ip::address_v4,
@@ -165,6 +176,15 @@ struct dhcp_handler {
     server_ip = client_ip = boost::asio::ip::make_address_v4("0.0.0.0");
   }
 
+  boost::optional<std::string> run_dhcp(){
+      discover();
+      if(get_response())
+          return {};
+      if(get_response())
+          return {};
+      return boost::optional<std::string>(client_ip.to_string());
+  }
+
   void discover() {
     uint16_t sent = 0;
     rte_mbuf *pkt;
@@ -178,8 +198,8 @@ struct dhcp_handler {
     } while (!sent);
   }
 
-  void get_response() {
-    int ret = -1;
+  int get_response() {
+    int ret;  
     uint16_t nb_rx = 0;
     rte_mbuf *pkt;
     do {
@@ -187,28 +207,32 @@ struct dhcp_handler {
       if (!nb_rx)
         continue;
       ret = process_packet(pkt);
-    } while (ret);
-  }
-
-  int process_packet(rte_mbuf *pkt) {
-    int ret = 0;
-    auto *eth = reinterpret_cast<rte_eth_header*>(pkt->buf);
-    if(eth->ether_type != htons(0x0800))
-        return -1;
-    dhcp_buf dm(pkt);
-    if (!dm.decode())
-      return -1;
-
-    if (state == DHCP_DISCOVER) {
-      ret = state_discover(dm);
-    } else if (state == DHCP_REQUEST) {
-      ret = state_request(dm);
-    }
-    pkt->pool->free_bulk(&pkt, 1);
+    } while (ret == -EAGAIN);
     return ret;
   }
 
-  int state_discover(dhcp_buf &resp) {
+  int process_packet(rte_mbuf *pkt) {
+    auto *eth = reinterpret_cast<rte_eth_header*>(pkt->buf);
+    if(eth->ether_type != htons(0x0800)){
+        dhcp_log("Got wrong ether type: %x", ntohs(eth->ether_type));
+        return -EAGAIN;
+    }
+    dhcp_buf dm(pkt);
+    if (!dm.decode()){
+      dhcp_log("Packet decoding failed\n"); 
+      return -EINVAL;
+    }
+
+    if (state == DHCP_DISCOVER) {
+      state_discover(dm);
+    } else if (state == DHCP_REQUEST) {
+      state_request(dm);
+    }
+    pkt->pool->free_bulk(&pkt, 1);
+    return 0;
+  }
+
+  void state_discover(dhcp_buf &resp) {
     uint16_t sent = 0;
     rte_mbuf *pkt;
     std::string hostname("");
@@ -223,10 +247,9 @@ struct dhcp_handler {
       sent = dev.tx_burst(tqid, dm.get(), 1);
     } while (!sent);
     state = DHCP_REQUEST;
-    return 0;
   }
 
-  int state_request(dhcp_buf &resp) {
+  void state_request(dhcp_buf &resp) {
     if (resp.get_message_type() == dhcp::DHCP_MT_NAK) {
       state = DHCP_INIT;
       server_ip = client_ip = boost::asio::ip::make_address_v4("0.0.0.0");
@@ -236,7 +259,6 @@ struct dhcp_handler {
       client_ip = resp.get_your_ip();
       state = DHCP_ACKNOWLEDGE;
     }
-    return 0;
   }
 
   State state;
