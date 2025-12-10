@@ -13,7 +13,6 @@
 #include "osv/msi.hh"
 #include "osv/osv_c_wrappers.h"
 #include "osv/virt_to_phys.hh"
-#include "processor.hh"
 
 #include <api/bypass/bit.hh>
 #include <api/bypass/defs.hh>

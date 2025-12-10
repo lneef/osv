@@ -23,18 +23,10 @@
 #include <sched.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <utility>
 #include <vector>
 #include <signal.h>
 #include "net.hh"
-#include "osv/clock.hh"
-#include "osv/contiguous_alloc.hh"
-#include "osv/mmu-defs.hh"
-#include "osv/mmu.hh"
-#include "osv/pagealloc.hh"
-#include "osv/sched.hh"
-#include "osv/virt_to_phys.hh"
-#include "processor.hh"
+#include <osv/sched.hh>
 
 #include <bypass/dhcp.hh>
 static constexpr uint32_t pbuf_sz = 1400;
@@ -269,6 +261,7 @@ int main(int argc, char *argv[]) {
     pconf.app.data_len = tu_size - sizeof(ipv4_header) - sizeof(udp_header);
     opmode = PING;
   }
+  sched::update_disable_reschedule(true);
   std::cout << "burst_size" << std::endl;
   std::cin >> pconf.burst_size;
   std::cout << "runtime" << std::endl;
@@ -283,8 +276,10 @@ int main(int argc, char *argv[]) {
     do_pong(pconf);
     break;
   }
+  sched::update_disable_reschedule(false);
 
   std::cerr << pconf.pool->get_stat() << std::endl;
   close_port(pconf);
+
   return 0;
 }
