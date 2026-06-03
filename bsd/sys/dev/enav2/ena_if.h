@@ -19,7 +19,7 @@ public:
     int rx_queue_setup(uint16_t qid,
 			      uint16_t nb_desc, unsigned int socket_id,
 			      const struct rte_eth_rxconf *rx_conf,
-            rte_mempool *mp) override;
+            rte_mempool *mp, irq_handler_cb_t handler = {}) override;
     void get_stats(rte_eth_stats *stats) override;
     int drv_configure() override;
     int get_dev_info(rte_eth_dev_info *info) override; 

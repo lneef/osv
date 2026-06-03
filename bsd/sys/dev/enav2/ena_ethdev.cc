@@ -12,10 +12,8 @@
 #include "osv/mmu-defs.hh"
 #include "osv/msi.hh"
 #include "osv/osv_c_wrappers.h"
-#include "osv/rcu.hh"
 #include "osv/sched.hh"
 #include "osv/virt_to_phys.hh"
-#include "processor.hh"
 
 #include <api/minidpdk/bit.hh>
 #include <api/minidpdk/defs.hh>
@@ -25,6 +23,7 @@
 #include <api/minidpdk/rss.hh>
 #include <api/minidpdk/time.hh>
 #include <api/minidpdk/util.hh>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -78,36 +77,6 @@ struct ena_stats {
 #define ENA_STAT_GLOBAL_ENTRY(stat) ENA_STAT_ENTRY(stat, dev)
 
 #define ENA_STAT_ENA_SRD_ENTRY(stat) ENA_STAT_ENTRY(stat, srd)
-
-/* Device arguments */
-
-/* llq_policy Controls whether to disable LLQ, use device recommended
- * header policy or overriding the device recommendation.
- * 0 - Disable LLQ. Use with extreme caution as it leads to a huge
- *     performance degradation on AWS instances built with Nitro v4 onwards.
- * 1 - Accept device recommended LLQ policy (Default).
- *     Device can recommend normal or large LLQ policy.
- * 2 - Enforce normal LLQ policy.
- * 3 - Enforce large LLQ policy.
- *     Required for packets with header that exceed 96 bytes on
- *     AWS instances built with Nitro v2 and Nitro v1.
- */
-#define ENA_DEVARG_LLQ_POLICY "llq_policy"
-
-/* Timeout in seconds after which a single uncompleted Tx packet should be
- * considered as a missing.
- */
-#define ENA_DEVARG_MISS_TXC_TO "miss_txc_to"
-
-/*
- * Controls the period of time (in milliseconds) between two consecutive
- * inspections of the control queues when the driver is in poll mode and not
- * using interrupts. By default, this value is zero, indicating that the driver
- * will not be in poll mode and will use interrupts. A non-zero value for this
- * argument is mandatory when using uio_pci_generic driver.
- */
-#define ENA_DEVARG_CONTROL_PATH_POLL_INTERVAL "control_path_poll_interval"
-
 /*
  * Each rte_memzone should have unique name.
  * To satisfy it, count number of allocation and add it to name.
@@ -219,7 +188,14 @@ static ena_vendor_info_t ena_vendor_info_array[] = {
     {0, 0, 0}};
 static ena_aenq_handlers aenq_handlers;
 
-static int ena_dev_configure(ena_eth_dev *dev);
+static void ena_rx_cleanup(ena_ring *rxq, rte_eth_dev *dev,
+                           irq_handler_cb_t handler);
+static void ena_rx_queue_intr_set(ena_ring *rx_ring, bool unmask,
+                                  u32 rx_delay = 0);
+static uint16_t ena_rx_burst(rte_eth_dev *dev, uint16_t qid, rte_mbuf **rx_pkts,
+                             uint16_t nb_pkts);
+static int ena_request_io_irq(struct ena_adapter *adapter);
+static int ena_dev_configure(rte_eth_dev *dev);
 static int ena_device_init(struct ena_adapter *adapter, pci::device *pdev,
                            struct ena_com_dev_get_features_ctx *get_feat_ctx);
 static void ena_tx_map_mbuf(struct ena_ring *tx_ring,
@@ -251,6 +227,7 @@ static int ena_create_io_queue(struct rte_eth_dev *dev, struct ena_ring *ring);
 static void ena_queue_stop(struct ena_ring *ring);
 static void ena_queue_stop_all(struct rte_eth_dev *dev,
                                enum ena_ring_type ring_type);
+static void ena_collect_intr_threads(struct ena_adapter *adapter);
 static int ena_queue_start(struct rte_eth_dev *dev, struct ena_ring *ring);
 static int ena_queue_start_all(struct rte_eth_dev *dev,
                                enum ena_ring_type ring_type);
@@ -340,7 +317,6 @@ static void ena_suboptimal_configuration(__rte_unused void *adapter_data,
 
 static void ena_update_on_link_change(void *data,
                                       struct ena_admin_aenq_entry *aenq_e) {
-
   auto *adapter = static_cast<ena_adapter *>(data);
   struct ena_admin_aenq_link_change_desc *aenq_desc;
   int status;
@@ -688,6 +664,7 @@ static int ena_queue_start_all(rte_eth_dev *dev, enum ena_ring_type ring_type) {
       }
     }
   }
+  ena_request_io_irq(adapter);
   return 0;
 err:
   while (i--)
@@ -864,16 +841,19 @@ static int ena_create_io_queue(rte_eth_dev *dev, ena_ring *ring) {
   unsigned int i;
   int rc;
 
-  ctx.msix_vector = -1;
   if (ring->type == ENA_RING_TYPE_TX) {
     ena_qid = ENA_IO_TXQ_IDX(ring->id);
     ctx.direction = ENA_COM_IO_QUEUE_DIRECTION_TX;
     ctx.mem_queue_type = ena_dev->tx_mem_queue_type;
+    ctx.msix_vector = -1;
     for (i = 0; i < ring->ring_size; i++)
       ring->empty_tx_reqs[i] = i;
   } else {
     ena_qid = ENA_IO_RXQ_IDX(ring->id);
     ctx.direction = ENA_COM_IO_QUEUE_DIRECTION_RX;
+    ctx.msix_vector = adapter->edev->data.dev_conf.intr_conf.rxq
+                          ? ENA_IO_IRQ_IDX(ring->id)
+                          : -1;
 
     for (i = 0; i < ring->ring_size; i++)
       ring->empty_rx_reqs[i] = i;
@@ -910,6 +890,9 @@ static void ena_queue_stop(ena_ring *ring) {
   if (ring->type == ENA_RING_TYPE_RX) {
     ena_com_destroy_io_queue(ena_dev, ENA_IO_RXQ_IDX(ring->id));
     ena_rx_queue_release_bufs(ring);
+    auto id = ENA_IO_IRQ_IDX(ring->id);
+    if (ring->adapter->irq_tbl[id].mvec)
+      delete ring->adapter->irq_tbl[id].mvec;
   } else {
     ena_com_destroy_io_queue(ena_dev, ENA_IO_TXQ_IDX(ring->id));
     ena_tx_queue_release_bufs(ring);
@@ -934,6 +917,27 @@ static void ena_queue_stop_all(rte_eth_dev *dev, enum ena_ring_type ring_type) {
       ena_queue_stop(&queues[i]);
 }
 
+/* Signal, join and dispose the per-RX-ring interrupt handler threads. Only
+ * relevant when MSI-X is enabled, since that is when the handler threads are
+ * started. Must run before the IO queues are destroyed so the threads stop
+ * touching the ring first.
+ */
+static void ena_collect_intr_threads(ena_adapter *adapter) {
+
+  uint16_t nb_rx = adapter->edev->data.nb_rx_queues;
+  for (uint16_t i = 0; i < nb_rx; i++) {
+    ena_ring *ring = &adapter->rx_ring[i];
+    sched::thread *t = ring->intr_thread;
+    if (!t)
+      continue;
+    ring->should_stop.store(true, std::memory_order_release);
+    t->wake();                 /* unblock wait_for so it observes the flag */
+    t->join();                 /* wait for ena_rx_cleanup to return */
+    sched::thread::dispose(t); /* make()'d threads are freed via dispose() */
+    ring->intr_thread = nullptr;
+  }
+}
+
 static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
   int rc, bufs_num;
   rc = ena_create_io_queue(dev, ring);
@@ -948,6 +952,12 @@ static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
   if (ring->type == ENA_RING_TYPE_TX) {
     ring->tx_stats.available_desc = ena_com_free_q_entries(ring->ena_com_io_sq);
     return 0;
+  } else if (dev->data.dev_conf.intr_conf.rxq) {
+    assert(ring->handler);  
+    ring->should_stop.store(false, std::memory_order_release);
+    ring->intr_thread = sched::thread::make(
+        [ring, dev]() { ena_rx_cleanup(ring, dev, ring->handler); });
+    ring->intr_thread->start();
   }
 
   bufs_num = ring->ring_size - 1;
@@ -957,11 +967,11 @@ static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
     ena_log_raw(ERR, "Failed to populate Rx ring");
     return ENA_COM_FAULT;
   }
+
   /* Flush per-core RX buffers pools cache as they can be used on other
    * cores as well.
    */
   // rte_mempool_cache_flush(NULL, ring->mb_pool);
-
   return 0;
 }
 
@@ -1249,8 +1259,6 @@ static void check_for_tx_completions(ena_adapter *adapter) {
 
   if (unlikely(adapter->trigger_reset))
     return;
-  adapter->irqs++;
-
   check_for_missing_keep_alive(adapter);
   check_for_admin_com_state(adapter);
   check_for_tx_completions(adapter);
@@ -1913,7 +1921,6 @@ int ena_eth_dev::start() {
     data.rx_queue_state[i] = RTE_ETH_QUEUE_STATE_STARTED;
   for (i = 0; i < data.nb_tx_queues; i++)
     data.tx_queue_state[i] = RTE_ETH_QUEUE_STATE_STARTED;
-  adapter->irqs = 0;
   return 0;
 
 err_rss_init:
@@ -1929,7 +1936,7 @@ int ena_eth_dev::stop() {
   uint16_t i;
   int rc;
   // rte_timer_stop_sync(&adapter->timer_wd);
-  ena_log_raw(INFO, "irqs: %lu\n", adapter->irqs.load());
+  ena_collect_intr_threads(adapter);
   ena_queue_stop_all(this, ENA_RING_TYPE_TX);
   ena_queue_stop_all(this, ENA_RING_TYPE_RX);
 
@@ -2043,8 +2050,8 @@ int ena_eth_dev::tx_queue_setup(uint16_t queue_idx, uint16_t nb_desc,
 
 int ena_eth_dev::rx_queue_setup(uint16_t qid, uint16_t nb_desc,
                                 unsigned int socket_id,
-                                const rte_eth_rxconf *rx_conf,
-                                rte_mempool *mp) {
+                                const rte_eth_rxconf *rx_conf, rte_mempool *mp,
+                                irq_handler_cb_t handler) {
   ena_adapter *adapter = get<ena_adapter>();
   struct ena_ring *rxq = NULL;
   size_t buffer_size;
@@ -2084,6 +2091,7 @@ int ena_eth_dev::rx_queue_setup(uint16_t qid, uint16_t nb_desc,
   rxq->size_mask = nb_desc - 1;
   rxq->numa_socket_id = socket_id;
   rxq->mb_pool = mp;
+  rxq->handler = handler;
 
   rxq->rx_buffer_info = static_cast<ena_rx_buffer *>(
       aligned_alloc(RTE_CACHE_LINE_SIZE, sizeof(ena_rx_buffer) * nb_desc));
@@ -2181,8 +2189,8 @@ uint16_t tx_burst(rte_eth_dev *dev, uint16_t qid, rte_mbuf **tx_pkts,
 TRACEPOINT(trace_ena_eth_dev_rx_burst, "qid=%x, rx_pkts=%y, nb_pkts=%z",
            uint16_t, rte_mbuf **, uint16_t);
 TRACEPOINT(trace_ena_eth_dev_rx_burst_ret, "");
-uint16_t rx_burst(rte_eth_dev *dev, uint16_t qid, rte_mbuf **rx_pkts,
-                  uint16_t nb_pkts) {
+uint16_t ena_rx_burst(rte_eth_dev *dev, uint16_t qid, rte_mbuf **rx_pkts,
+                      uint16_t nb_pkts) {
   trace_ena_eth_dev_rx_burst(qid, rx_pkts, nb_pkts);
   if (qid >= dev->data.nb_rx_queues)
     return 0;
@@ -2360,7 +2368,6 @@ bool ena_probe(pci::device *pdev) {
     }
     ent++;
   }
-
   return false;
 }
 
@@ -2376,8 +2383,8 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter) {
 
   adapter = aligned_new<ena_adapter>();
   *_adapter = adapter;
-  memset(adapter, 0, sizeof(struct ena_adapter));
   adapter->dev = dev;
+  new (adapter) ena_adapter{};
   ena_dev = &adapter->ena_dev;
   edev = static_cast<ena_eth_dev *>(
       malloc(sizeof(ena_eth_dev), M_DEVBUF, M_WAITOK | M_ZERO));
@@ -2516,7 +2523,7 @@ int ena_attach(pci::device *dev, ena_adapter **_adapter) {
   adapters_found++;
   adapter->state = ENA_ADAPTER_STATE_INIT;
   adapter->edev->tx_burst = tx_burst;
-  adapter->edev->rx_burst = rx_burst;
+  adapter->edev->rx_burst = ena_rx_burst;
   return 0;
 
 err_rss_destroy:
@@ -2583,89 +2590,198 @@ int ena_detach(ena_adapter *adapter) {
  * ena_intr_msix_mgmnt - MSIX Interrupt Handler for admin/async queue
  * @arg: interrupt number
  **/
+
+static void ena_rx_cleanup(ena_ring *rxq, rte_eth_dev *dev,
+                           irq_handler_cb_t handler) {
+  static constexpr unsigned kDefaultBurstSize = 32;
+  static constexpr unsigned kDefaultCleanupBudget = 1024;
+  rte_mbuf *rxb[kDefaultBurstSize];
+  while (1) {
+    sched::thread::current()->wait_for([rxq] {
+      return rxq->rx_pkts_ready.load(std::memory_order_acquire) ||
+             rxq->should_stop.load(std::memory_order_acquire);
+    });
+    if (rxq->should_stop.load(std::memory_order_acquire))
+      return;
+    unsigned rx_n = 0;
+    do {
+      auto rx_nb = ena_rx_burst(dev, rxq->id, rxb, kDefaultBurstSize);
+      if (!rx_nb)
+        break;
+      rx_n += rx_nb;
+      handler(rxb, rx_nb);
+    } while (rx_n < kDefaultCleanupBudget);
+    rxq->rx_pkts_ready.store(false, std::memory_order_release);
+    ena_rx_queue_intr_set(rxq, true);
+  }
+}
+
+/* Re-arm (unmask) a single RX queue's interrupt at the device. */
+static void ena_rx_queue_intr_set(ena_ring *rx_ring, bool unmask,
+                                  u32 rx_delay) {
+  struct ena_eth_io_intr_reg intr_reg;
+  ena_com_update_intr_reg(&intr_reg, 0, rx_delay, unmask, rx_delay != 0,
+                          /*lost_interrupt*/ false);
+  ena_com_unmask_intr(rx_ring->ena_com_io_cq, &intr_reg);
+}
+
 static void ena_intr_msix_mgmnt(void *arg) {
   struct ena_adapter *adapter = static_cast<ena_adapter *>(arg);
-  adapter->irqs++;
   ena_com_admin_q_comp_intr_handler(&adapter->ena_dev);
   if (likely(adapter->state == ENA_ADAPTER_STATE_RUNNING))
     ena_com_aenq_intr_handler(&adapter->ena_dev, arg);
 }
 
-static constexpr int ENA_ADMIN_MSIX_VEC = 1;
-static constexpr int ENA_MGMNT_IRQ_IDX = 0;
 static int ena_enable_msix(ena_adapter *adapter) {
   pci::device *dev = adapter->dev;
-
-  if (adapter->flags == ENA_FLAG_MSIX_ENABLED) {
-    ena_log(dev, ERR, "Error, MSI-X is already enabled");
-    return (EINVAL);
-  }
-
-  /* Reserved the max msix vectors we might need */
-  /* Right now only polling */
-
-  int msix_vecs = 1;
+  int msix_vecs = ENA_ADMIN_MSIX_VEC;
   ena_log(dev, DBG, "trying to enable MSI-X, vectors: %d", msix_vecs);
   dev->set_bus_master(true);
   dev->msix_enable();
   assert(dev->is_msix());
   if (msix_vecs > dev->msix_get_num_entries()) {
-    if (msix_vecs == ENA_ADMIN_MSIX_VEC) {
-      ena_log(dev, ERR, "Not enough number of MSI-x allocated: %d", msix_vecs);
+    if (dev->msix_get_num_entries() < ENA_ADMIN_MSIX_VEC + 1) {
+      ena_log(dev, ERR, "Not enough MSI-X vectors allocated: %d",
+              dev->msix_get_num_entries());
       dev->msix_disable();
       return ENOSPC;
     }
     ena_log(dev, ERR,
             "Enable only %d MSI-x (out of %d), reduce "
             "the number of queues",
-            msix_vecs, dev->msix_get_num_entries());
+            dev->msix_get_num_entries(), msix_vecs);
+    msix_vecs = dev->msix_get_num_entries();
   }
-  adapter->flags = ENA_FLAG_MSIX_ENABLED;
+  adapter->msix_vecs = msix_vecs;
   return (0);
 }
 
-static int ena_request_mgmnt_irq(ena_adapter *adapter) {
-  interrupt_manager _msi(adapter->dev);
+static void ena_handle_msix(ena_ring *rx_ring) {
+  rx_ring->interrupts++;
+  rx_ring->rx_pkts_ready.store(true, std::memory_order_release);
+  auto *t = rx_ring->intr_thread;
+  if (t)
+    t->wake_with_irq_disabled();
+}
 
-  std::vector<msix_vector *> assigned = _msi.request_vectors(1);
+static int ena_request_io_irq(struct ena_adapter *adapter) {
+  assert(adapter->edev->data.dev_conf.intr_conf.rxq);
+  interrupt_manager msi(adapter->dev);
+  auto *dev = adapter->dev;
+  adapter->msix_vecs += adapter->edev->data.nb_rx_queues;
+  auto msix_vecs = adapter->msix_vecs;
+  assert(dev->is_msix());
+  if (msix_vecs > dev->msix_get_num_entries()) {
+    ena_log(dev, ERR, "Not enough MSI-X vectors allocated: %d",
+            dev->msix_get_num_entries());
+    dev->msix_disable();
+    return ENOSPC;
+  }
+
+  int vec_num = adapter->msix_vecs - 1;
+  unsigned nb_rx = adapter->edev->data.nb_rx_queues;
+  if ((int)nb_rx > vec_num)
+    nb_rx = vec_num;
+
+  std::vector<msix_vector *> assigned = msi.request_vectors(vec_num);
+  if ((int)assigned.size() != vec_num) {
+    msi.free_vectors(assigned);
+    ena_log(adapter->dev, ERR, "could not request %d I/O irq vectors", vec_num);
+    return (ENXIO);
+  }
+
+  for (unsigned idx = 0; idx < nb_rx; idx++) {
+    int entry = ENA_IO_IRQ_IDX(idx);
+    auto vec = assigned[idx];
+    auto queue = &adapter->rx_ring[idx];
+    if (!msi.assign_isr(vec, [queue]() { ena_handle_msix(queue); })) {
+      msi.free_vectors(assigned);
+      ena_log(adapter->dev, ERR, "could not assign I/O irq vector isr: %d",
+              entry);
+      return (ENXIO);
+    }
+
+    if (!msi.setup_entry(entry, vec)) {
+      msi.free_vectors(assigned);
+      ena_log(adapter->dev, ERR, "could not setup I/O irq vector entry: %d",
+              entry);
+      return (ENXIO);
+    }
+
+    ena_irq *irq = &adapter->irq_tbl[entry];
+    irq->vector = entry;
+    irq->mvec = vec;
+    irq->data = queue;
+    irq->requested = true;
+    irq->cpu = idx % sched::cpus.size();
+
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+    vec->set_affinity(sched::cpus[irq->cpu]);
+
+    ena_log(adapter->dev, INFO, "pinned MSIX vector on queue %d - cpu %d", idx,
+            irq->cpu);
+  }
+
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+  msi.unmask_interrupts(assigned);
+
+  /* Arm each queue so the device will raise its RX interrupt. */
+  for (unsigned idx = 0; idx < nb_rx; idx++)
+    ena_rx_queue_intr_set(&adapter->rx_ring[idx], true);
+
+  return 0;
+}
+
+static int ena_request_mgmnt_irq(ena_adapter *adapter) {
+  interrupt_manager msi(adapter->dev);
+
+  std::vector<msix_vector *> assigned = msi.request_vectors(1);
   if (assigned.size() != 1) {
-    _msi.free_vectors(assigned);
-    ena_log(pdev, ERR, "could not request MGMNT irq vector: %d",
+    msi.free_vectors(assigned);
+    ena_log(adapter->dev, ERR, "could not request MGMNT irq vector: %d",
             ENA_MGMNT_IRQ_IDX);
     return (ENXIO);
   }
 
   auto vec = assigned[0];
   // should be pinned
+  if (!msi.assign_isr(vec, [adapter]() { ena_intr_msix_mgmnt(adapter); })) {
+    msi.free_vectors(assigned);
+    ena_log(adapter->dev, ERR, "could not assign MGMNT irq vector isr: %d",
+            ENA_MGMNT_IRQ_IDX);
+    return (ENXIO);
+  }
+
+  if (!msi.setup_entry(ENA_MGMNT_IRQ_IDX, vec)) {
+    msi.free_vectors(assigned);
+    ena_log(adapter->dev, ERR, "could not setup MGMNT irq vector entry: %d",
+            ENA_MGMNT_IRQ_IDX);
+    return (ENXIO);
+  }
+
+  ena_irq *irq = &adapter->irq_tbl[ENA_MGMNT_IRQ_IDX];
+  irq->vector = ENA_MGMNT_IRQ_IDX;
+  irq->mvec = vec;
+  irq->data = adapter;
+  irq->requested = true;
+  std::atomic_thread_fence(std::memory_order_seq_cst);
   vec->set_affinity(sched::current_cpu);
-  if (!_msi.assign_isr(vec, [adapter]() { ena_intr_msix_mgmnt(adapter); })) {
-    _msi.free_vectors(assigned);
-    ena_log(pdev, ERR, "could not assign MGMNT irq vector isr: %d",
-            ENA_MGMNT_IRQ_IDX);
-    return (ENXIO);
-  }
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 
-  if (!_msi.setup_entry(ENA_MGMNT_IRQ_IDX, vec)) {
-    _msi.free_vectors(assigned);
-    ena_log(pdev, ERR, "could not setup MGMNT irq vector entry: %d",
-            ENA_MGMNT_IRQ_IDX);
-    return (ENXIO);
-  }
-
-  // Save assigned msix vector
-  _msi.unmask_interrupts(assigned);
+  msi.unmask_interrupts(assigned);
 
   return 0;
 }
 
 static void ena_disable_msix(struct ena_adapter *adapter) {
-  if (adapter->flags == ENA_FLAG_MSIX_ENABLED) {
-    adapter->flags = ENA_FLAGS_MSIX_DISABLED;
-    adapter->dev->msix_disable();
-  }
+  adapter->dev->msix_disable();
 }
 
-static void ena_free_irqs(ena_adapter *adapter) { ena_disable_msix(adapter); }
+static void ena_free_irqs(ena_adapter *adapter) {
+  if (adapter->irq_tbl[ENA_MGMNT_IRQ_IDX].mvec)
+    delete adapter->irq_tbl[ENA_MGMNT_IRQ_IDX].mvec;
+  ena_disable_msix(adapter);
+}
 
 static int ena_enable_msix_and_set_admin_interrupts(ena_adapter *adapter) {
   auto *ena_dev = &adapter->ena_dev;
@@ -2708,7 +2824,7 @@ static bool ena_use_large_llq_hdr(struct ena_adapter *adapter,
   return false;
 }
 
-int ena_dev_configure(ena_eth_dev *dev) {
+int ena_dev_configure(rte_eth_dev *dev) {
   auto *adapter = dev->get<ena_adapter>();
   adapter->last_tx_comp_qid = 0;
 

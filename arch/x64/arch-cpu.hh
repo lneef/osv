@@ -191,12 +191,14 @@ inline void arch_cpu::init_on_cpu()
         }
         write_xcr(xcr0, bits);
     }
+    processor::init_cache_modes();
 
     // We can't trust the FPU and the MXCSR to be always initialized to default values.
     // In at least one particular version of Xen it is not, leading to SIMD exceptions.
     processor::init_fpu();
 
     processor::init_syscall();
+
 
     processor::wrmsr(msr::IA32_GS_BASE, reinterpret_cast<u64>(&_current_syscall_stack_descriptor.stack_top));
 }

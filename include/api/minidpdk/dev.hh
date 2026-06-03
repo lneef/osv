@@ -98,6 +98,9 @@ struct rte_eth_conf {
   rte_eth_rxconf rxmode;
   rte_eth_txconf txmode;
   rte_eth_adv_rxconf rx_adv_conf;
+  struct{
+      uint16_t rxq = 0;
+  } intr_conf;
 };
 
 struct rte_eth_dev_portconf {
@@ -153,6 +156,7 @@ struct rte_eth_dev_data {
 
   template <typename T> T *get() { return static_cast<T *>(data); }
 };
+using irq_handler_cb_t = std::function<void(rte_mbuf**, uint16_t)>;
 
 struct rte_eth_dev {
   using tx_burst_t = uint16_t (*) (rte_eth_dev*, uint16_t, rte_mbuf**, uint16_t);  
@@ -171,7 +175,7 @@ struct rte_eth_dev {
   virtual int rx_queue_setup(uint16_t qid, uint16_t nb_desc,
                              unsigned int socket_id,
                              const struct rte_eth_rxconf *rx_conf,
-                             rte_mempool *mp) = 0;
+                             rte_mempool *mp, irq_handler_cb_t handler = {}) = 0;
   tx_burst_t tx_burst;
   rx_burst_t rx_burst;
   virtual int drv_configure() = 0;
@@ -221,9 +225,9 @@ __inline int rte_eth_dev_adjust_nb_rx_tx_desc(uint16_t port, uint16_t *nb_rxd, u
 
 __inline int rte_eth_rx_queue_setup(uint16_t port, uint16_t qid,
                                     uint16_t nb_rxd, uint16_t socket_id,
-                                    rte_eth_rxconf *rx_conf, rte_mempool *mp) {
+                                    rte_eth_rxconf *rx_conf, rte_mempool *mp, irq_handler_cb_t handler = {}) {
   return eth_os::get_eth_for_port(port)->rx_queue_setup(qid, nb_rxd, socket_id,
-                                                        rx_conf, mp);
+                                                        rx_conf, mp, handler);
 }
 
 __inline int rte_eth_tx_queue_setup(uint16_t port, uint16_t qid,
