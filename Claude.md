@@ -18,7 +18,7 @@ include/api/minidpdk/time.hh Timer cycles info and delay/sleep functionioality
 | Reference | File | Notes |
 |------|------|-------|
 |Receive side|~/netbench/pong.cc|DPDK implementation for recv and pong|
-|DPDK-reference port setup |~/netbench/port.(h|cc)|dpdk setup process for the port)|
+|DPDK-reference port setup |~/netbench/port.(h\|cc)|dpdk setup process for the port)|
 |Utility functions for setup |~/netbench/util.h| Setup utilities eg to avoid false sharing|
 
 ## ANTI-PATTERNS
@@ -26,13 +26,13 @@ include/api/minidpdk/time.hh Timer cycles info and delay/sleep functionioality
 - **Do not copy one by one** 
 - **Do not rewrite anything in the reference or outside of microbench**
 - **Do not include any third party libs like hdr_hist from the reference (Ignore them)**
-- ** Do not use ```hz``` as identifier**
 
 ## NOTES
 MiniDPDK is a shim API-layer for DPDK. 
 
 ## Building and Testing
 You cannot run the app on this system however building is possible: 
-```podman run --rm -it -v /home/lukas/osv:/home/lukas/osv -w /home/lukas/osv \
-  localhost/osv-builder:latest \
-  bash -lc 'apt-get install -y -qq libboost-system-dev && ./scripts/build image=microbench -j8'```
+
+``` 
+podman exec osv-compiler bash -lc './scripts/build image=microbench -j 8'
+```

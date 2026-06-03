@@ -70,7 +70,6 @@ using pool_ptr = std::unique_ptr<rte_pktmbuf_pool, decltype(&rte_mempool_free)>;
 
 enum class opmode { PING, PONG, RECEIVE };
 
-// Configuration parsed from the command line / shared across all lcores.
 struct benchmark_config {
   app_config app;
   uint64_t rt = 30;
@@ -79,14 +78,11 @@ struct benchmark_config {
   opmode role = opmode::PONG;
 };
 
-// Offload capabilities of the underlying device.
 struct capabilities {
   bool ip_cksum_tx = false, ip_cksum_rx = false;
   bool l4_cksum_tx = false, l4_cksum_rx = false;
 };
 
-// Per-lcore / per-queue state. With one queue per lcore, each block owns a
-// single rx/tx queue and its own mempool plus running counters.
 struct thread_block {
   uint16_t rx_queue = 0;
   uint16_t tx_queue = 0;
@@ -95,7 +91,6 @@ struct thread_block {
   thread_block() : pool(nullptr, &rte_mempool_free) {}
 };
 
-// Per-port device state shared by all lcores driving the port.
 struct port_info {
   uint16_t port_id = 0;
   rte_eth_dev *dev = nullptr;
@@ -108,7 +103,6 @@ struct port_info {
   }
 };
 
-// Bundle handed to each lcore entry point.
 struct lcore_adapter {
   port_info &info;
   benchmark_config &config;
@@ -139,6 +133,7 @@ static void setup_reta(port_info &info, uint32_t nrx, uint32_t reta_size) {
 
 static int configure_port(port_info &info, benchmark_config &config) {
   static constexpr uint16_t kDefaultDescNum = 1024;
+  static constexpr uint32_t kMempoolCacheSize = 256;
   uint16_t nb_cores = config.nb_cores;
   rte_eth_dev_info dinfo{};
   rte_eth_rxconf rxconf{};
@@ -179,9 +174,6 @@ static int configure_port(port_info &info, benchmark_config &config) {
       rssconf.rss_key = RSS_DEFAULT_KEY;
       rssconf.rss_key_len = RSS_KEY_LEN;
     }
-    rssconf.rss_hf =
-        (RTE_ETH_RSS_NONFRAG_IPV4_UDP & dinfo.flow_type_rss_offloads) |
-        (RTE_ETH_RSS_NONFRAG_IPV4_TCP & dinfo.flow_type_rss_offloads);
   } else {
     rssconf.rss_key = nullptr;
     rssconf.rss_hf = 0;
@@ -200,7 +192,11 @@ static int configure_port(port_info &info, benchmark_config &config) {
   for (uint16_t i = 0; i < nb_cores; ++i) {
     auto &tb = info.thread_blocks[i];
     std::string name = "pool-" + std::to_string(i);
-    tb.pool = pool_ptr(rte_pktmbuf_pool_create(name.c_str(), 4095, 0, 0, 0, 0),
+    uint32_t pool_sz = static_cast<uint32_t>(2 * rx_desc - 1) +
+                       static_cast<uint32_t>(2 * tx_desc - 1);
+    tb.pool = pool_ptr(rte_pktmbuf_pool_create(name.c_str(), pool_sz,
+                                               kMempoolCacheSize, 0,
+                                               RTE_MBUF_DEFAULT_BUF_SIZE, 0),
                        &rte_mempool_free);
     if (!tb.pool) {
       std::cout << "pool create failed" << std::endl;
@@ -351,8 +347,6 @@ static int lcore_recv(void *arg) {
     rte_pktmbuf_free_bulk(pkts.data(), rx);
   }
   tb.ticks = rte_get_timer_cycles() - begin;
-
-  sched::update_disable_reschedule(false);
   return 0;
 }
 
@@ -445,7 +439,6 @@ int main(int argc, char *argv[]) {
 
   auto timer_hz = rte_get_timer_hz();
   std::cout << "Packets:" << total_pkts << std::endl;
-  std::cout << "Faulty:" << total_faulty << std::endl;
   if (config.role == opmode::PING && total_pkts) {
     std::cout << "Latency:"
               << (static_cast<double>(total_ticks) / (timer_hz / 1e6)) /
