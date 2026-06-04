@@ -7,7 +7,7 @@
 #include <memory>
 
 #include <minidpdk/util.hh>
-#include <minidpdk/lf_stack.hh>
+#include <minidpdk/stack.hh>
 #include <osv/mmu.hh>
 #include <osv/types.h>
 
@@ -190,7 +190,7 @@ public:
 
 public:
   mem_pool(unsigned size, void *priv = nullptr, init_fn_t init_fn = nullptr)
-      : ps(), objs(rte_stack_create(size)), obj_size(kDefaultSize), top(size), priv(priv), init_fn(init_fn){
+      : ps(), objs(stack::create(size)), obj_size(kDefaultSize), top(size), priv(priv), init_fn(init_fn){
     while (top > 0)
       alloc_new_region();
   }
@@ -275,11 +275,12 @@ public:
       }
     };
     free_pages(ps.regions);
+    stack::destroy(objs);
   }
 
 private:
   page_storage ps;
-  rte_stack *objs;
+  stack *objs;
   size_t obj_size;
   size_t top = 0;
 
