@@ -7,9 +7,9 @@
 #include <memory>
 
 #include <minidpdk/util.hh>
+#include <minidpdk/lf_stack.hh>
 #include <osv/mmu.hh>
 #include <osv/types.h>
-#include <vector>
 
 namespace minidpdk {
 class mem_pool;
@@ -29,7 +29,7 @@ struct alignas(64) mbuf {
   // address of the mbuf structure
   char *buf_addr;
 
-  // memory pool allocated from
+  // memory pool
   mem_pool *pool;
 
   // IO Virtual Address
@@ -190,16 +190,17 @@ public:
 
 public:
   mem_pool(unsigned size, void *priv = nullptr, init_fn_t init_fn = nullptr)
-      : ps(), objs(size), obj_size(kDefaultSize), top(size), priv(priv), init_fn(init_fn){
+      : ps(), objs(rte_stack_create(size)), obj_size(kDefaultSize), top(size), priv(priv), init_fn(init_fn){
     while (top > 0)
       alloc_new_region();
   }
 
   mbuf *alloc_default() {
-    if (top == objs.size())
-      return nullptr;
-    auto *obj = objs[top++];
-    return reinterpret_cast<mbuf *>(obj + 1);
+    void* obj;  
+    if(!objs->pop(reinterpret_cast<void**>(&obj), 1))
+        return nullptr;
+    return static_cast<mbuf*>(obj);
+
   }
 
   uintptr_t get_iova(void * ptr){
@@ -209,15 +210,8 @@ public:
       return ph->iova + (ptr_byte - ph_byte);
   }
 
-  int alloc_bulk(void **pkts, unsigned n) {
-    if (objs.size() - top < n)
-      return -1;
-    for (auto i = 0u; i < n; ++i) {
-      auto *obj = objs[top++];
-      rte_prefetch0_write(&objs[top + 4]);
-      pkts[i] = reinterpret_cast<mbuf *>(obj + 1);
-    }
-    return 0;
+  int alloc_bulk(void **pkts, unsigned n) { 
+    return objs->pop(pkts, n);
   }
 
   mbuf *alloc_single() { return alloc_default(); }
@@ -235,11 +229,11 @@ public:
       auto *obj = new (base + off) obj_header;
       obj->next = nullptr;
       obj->iova = s->iova + sizeof(page_header) + off;
-      auto * m = new (obj + 1) mbuf(nullptr, this,
+      auto *m = new (obj + 1) mbuf(nullptr, this,
                          obj->iova + sizeof(obj_header), kMaxDataLen, 1, 0,
                          kDefaultHeadroom);
       assert(m->iova == get_iova(m) + sizeof(mbuf) + kDefaultHeadroom);
-      objs[--top] = obj;
+      objs->push(reinterpret_cast<void* const*>(&m), 1);
       off += obj_size;
     }
   }
@@ -251,7 +245,7 @@ public:
                    obj_hdr->iova + sizeof(obj_header), kMaxDataLen, 1, 0,
                    kDefaultHeadroom);
       assert(obj->iova == get_iova(obj) + sizeof(mbuf) + kDefaultHeadroom);
-    objs[--top] = obj_hdr;
+      objs->push(reinterpret_cast<void* const*>(obj), 1);
   }
 
   void free_mbuf(mbuf *obj) {
@@ -285,7 +279,7 @@ public:
 
 private:
   page_storage ps;
-  std::vector<obj_header *> objs;
+  rte_stack *objs;
   size_t obj_size;
   size_t top = 0;
 

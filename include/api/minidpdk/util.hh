@@ -1,14 +1,22 @@
 #ifndef BYPASS_UTIL_H
 #define BYPASS_UTIL_H
 
-#include "osv/mmio.hh"
 #include <atomic>
 #include <cstdint>
 #include <features.h>
 #include <osv/spinlock.h>
 #include <osv/irqlock.hh>
 #include <sys/types.h>
-#include "machine/atomic.h"
+#include <machine/atomic.h>
+#include <osv/mmio.hh>
+
+#ifndef likely
+#define likely(x)	__builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x)	__builtin_expect(!!(x), 0)
+#endif
 
 #define rte_wmb wmb
 #define rte_rmb rmb

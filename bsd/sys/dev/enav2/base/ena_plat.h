@@ -67,8 +67,12 @@ typedef struct {
 #define ENA_COM_EIO -EIO
 #define ENA_COM_DEVICE_BUSY -EBUSY
 
-#define unlikely(x) __predict_false(!!(x))
+#ifndef likely
 #define likely(x) __predict_true(!!(x))
+#endif 
+#ifndef unlikely
+#define unlikely(x) __predict_false(!!(x))
+#endif 
 
 #define ____cacheline_aligned __rte_cache_aligned
 
