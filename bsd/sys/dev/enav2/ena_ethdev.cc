@@ -664,7 +664,8 @@ static int ena_queue_start_all(rte_eth_dev *dev, enum ena_ring_type ring_type) {
       }
     }
   }
-  ena_request_io_irq(adapter);
+  if(dev->data.dev_conf.intr_conf.rxq)
+    ena_request_io_irq(adapter);
   return 0;
 err:
   while (i--)

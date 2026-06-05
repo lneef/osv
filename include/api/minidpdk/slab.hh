@@ -245,7 +245,7 @@ public:
                    obj_hdr->iova + sizeof(obj_header), kMaxDataLen, 1, 0,
                    kDefaultHeadroom);
       assert(obj->iova == get_iova(obj) + sizeof(mbuf) + kDefaultHeadroom);
-      objs->push(reinterpret_cast<void* const*>(obj), 1);
+      objs->push(reinterpret_cast<void* const*>(&obj), 1);
   }
 
   void free_mbuf(mbuf *obj) {
