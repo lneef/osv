@@ -931,11 +931,12 @@ static void ena_collect_intr_threads(ena_adapter *adapter) {
     sched::thread *t = ring->intr_thread;
     if (!t)
       continue;
-    ring->should_stop.store(true, std::memory_order_release);
-    t->wake();                 /* unblock wait_for so it observes the flag */
-    t->join();                 /* wait for ena_rx_cleanup to return */
-    sched::thread::dispose(t); /* make()'d threads are freed via dispose() */
     ring->intr_thread = nullptr;
+    ring->should_stop.store(true, std::memory_order_relaxed);
+    // this is safe (noop cas)
+    t->wake();                 
+    t->join();                 
+    sched::thread::dispose(t); 
   }
 }
 
@@ -958,7 +959,7 @@ static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
     ring->should_stop.store(false, std::memory_order_release);
     ring->intr_thread = sched::thread::make(
         [ring, dev]() { ena_rx_cleanup(ring, dev, ring->handler); });
-    ring->intr_thread->start();
+    ring->intr_thread.load()->start();
   }
 
   bufs_num = ring->ring_size - 1;
@@ -1938,25 +1939,22 @@ int ena_eth_dev::stop() {
   int rc;
   // rte_timer_stop_sync(&adapter->timer_wd);
   ena_collect_intr_threads(adapter);
-  ena_queue_stop_all(this, ENA_RING_TYPE_TX);
   ena_queue_stop_all(this, ENA_RING_TYPE_RX);
+  ena_queue_stop_all(this, ENA_RING_TYPE_TX);
 
   if (adapter->trigger_reset) {
     rc = ena_com_dev_reset(ena_dev, adapter->reset_reason);
     if (rc)
       ena_log_raw(ERR, "Device reset failed, rc: %d", rc);
   }
-
   ++adapter->dev_stats.dev_stop;
   adapter->state = ENA_ADAPTER_STATE_STOPPED;
 
   data.dev_started = 0;
-
   for (i = 0; i < data.nb_rx_queues; i++)
     data.rx_queue_state[i] = RTE_ETH_QUEUE_STATE_STOPPED;
   for (i = 0; i < data.nb_tx_queues; i++)
     data.tx_queue_state[i] = RTE_ETH_QUEUE_STATE_STOPPED;
-
   return 0;
 }
 
@@ -2661,7 +2659,7 @@ static int ena_enable_msix(ena_adapter *adapter) {
 static void ena_handle_msix(ena_ring *rx_ring) {
   rx_ring->interrupts++;
   rx_ring->rx_pkts_ready.store(true, std::memory_order_release);
-  auto *t = rx_ring->intr_thread;
+  auto *t = rx_ring->intr_thread.load(std::memory_order_relaxed);
   if (t)
     t->wake_with_irq_disabled();
 }
@@ -2670,7 +2668,7 @@ static int ena_request_io_irq(struct ena_adapter *adapter) {
   assert(adapter->edev->data.dev_conf.intr_conf.rxq);
   interrupt_manager msi(adapter->dev);
   auto *dev = adapter->dev;
-  adapter->msix_vecs += adapter->edev->data.nb_rx_queues;
+  adapter->msix_vecs = ENA_ADMIN_MSIX_VEC + adapter->edev->data.nb_rx_queues;
   auto msix_vecs = adapter->msix_vecs;
   assert(dev->is_msix());
   if (msix_vecs > dev->msix_get_num_entries()) {

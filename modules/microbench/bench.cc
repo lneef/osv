@@ -368,8 +368,6 @@ int main(int argc, char *argv[]) {
       {"bs", required_argument, 0, 0},    {"cores", required_argument, 0, 0},
       {0, 0, 0, 0}};
 
-  config.burst_size = 1;
-  config.rt = rte_get_timer_hz();
   while ((opt = getopt_long(argc, argv, "", long_options, &option_index)) !=
          -1) {
     switch (option_index) {

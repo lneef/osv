@@ -231,7 +231,7 @@ struct __rte_cache_aligned ena_ring {
 
   /* Per-queue MSI-X interrupt support (RX). The ISR wakes the registered
    * waiter thread; the consumer re-arms the interrupt after draining. */
-  sched::thread * intr_thread{nullptr};
+  std::atomic<sched::thread*> intr_thread{nullptr};
   std::atomic<bool> rx_pkts_ready{false}; //same CPU
   std::atomic<bool> should_stop{false};
   uint64_t interrupts;
