@@ -1,9 +1,9 @@
+#include <cerrno>
 #include <minidpdk/mem.hh>
 #include <minidpdk/slab.hh>
 #include <cassert>
 #include <cstdint>
 #include <malloc.h>
-#include <bsd/porting/netport.h>
 #include <osv/trace.hh>
 
 void inline free_internal(rte_mbuf* buf){
@@ -25,9 +25,9 @@ void rte_mbuf_raw_free(rte_mbuf* mbuf){
 
 
 int rte_pktmbuf_alloc_bulk(rte_mempool* pool, rte_mbuf** pkts, uint16_t size){
-    int ret = pool->alloc_bulk(reinterpret_cast<void**>(pkts), size);
-    if(ret < 0)
-        return ret;
+    unsigned ret = pool->alloc_bulk(reinterpret_cast<void**>(pkts), size);
+    if(!ret)
+        return -ENOENT;
     if(pool->init_fn)
         pool->init_fn(pkts, size, pool->priv);
     return 0;

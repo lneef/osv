@@ -190,9 +190,9 @@ public:
 
 public:
   mem_pool(unsigned size, void *priv = nullptr, init_fn_t init_fn = nullptr)
-      : ps(), objs(stack::create(size)), obj_size(kDefaultSize), top(size), priv(priv), init_fn(init_fn){
-    while (top > 0)
-      alloc_new_region();
+      : ps(), objs(stack::create(size)), obj_size(kDefaultSize), priv(priv), init_fn(init_fn){
+      while(objs->free_space())    
+        alloc_new_region();
   }
 
   mbuf *alloc_default() {
@@ -225,7 +225,7 @@ public:
     size_t space = kSlabSize - sizeof(page_header);
     ps.regions.list_push(s);
     size_t off = 0;
-    while (top > 0 && off + obj_size <= space) {
+    while (objs->free_space() && off + obj_size <= space) {
       auto *obj = new (base + off) obj_header;
       obj->next = nullptr;
       obj->iova = s->iova + sizeof(page_header) + off;
@@ -282,7 +282,6 @@ private:
   page_storage ps;
   stack *objs;
   size_t obj_size;
-  size_t top = 0;
 
 public:
   void *priv;

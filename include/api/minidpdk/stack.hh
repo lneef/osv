@@ -27,6 +27,10 @@ struct stack {
     return n;
   }
 
+  unsigned free_space() const{
+      return objs.size() - head;
+  }
+
   unsigned int pop(void **obj_table, unsigned int n) {  
     WITH_LOCK(preempt_lock) {
       if (unlikely(head < n))
