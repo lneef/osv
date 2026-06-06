@@ -955,11 +955,15 @@ static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
     ring->tx_stats.available_desc = ena_com_free_q_entries(ring->ena_com_io_sq);
     return 0;
   } else if (dev->data.dev_conf.intr_conf.rxq) {
-    assert(ring->handler);  
+    auto& cpus = sched::cpus;  
+    assert(ring->handler);
+    assert(ring->id < cpus.size());
     ring->should_stop.store(false, std::memory_order_release);
     ring->intr_thread = sched::thread::make(
         [ring, dev]() { ena_rx_cleanup(ring, dev, ring->handler); });
+    sched::thread::pin(ring->intr_thread.load(), cpus[ring->id]);
     ring->intr_thread.load()->start();
+    
   }
 
   bufs_num = ring->ring_size - 1;
