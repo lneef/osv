@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <minidpdk/mem.hh>
 #include <minidpdk/net.hh>
+#include <minidpdk/slab.hh>
 #include <minidpdk/time.hh>
 #include <minidpdk/util.hh>
 
@@ -196,7 +197,7 @@ static int configure_port(port_info &info, benchmark_config &config) {
                        static_cast<uint32_t>(2 * tx_desc - 1);
     tb.pool = pool_ptr(rte_pktmbuf_pool_create(name.c_str(), pool_sz,
                                                kMempoolCacheSize, 0,
-                                               RTE_MBUF_DEFAULT_BUF_SIZE, 0),
+                                               minidpdk::mem_pool::kMaxDataLen, 0),
                        &rte_mempool_free);
     if (!tb.pool) {
       std::cout << "pool create failed" << std::endl;
@@ -429,11 +430,10 @@ int main(int argc, char *argv[]) {
   rte_eal_mp_remote_launch(lcore_fn, &adapter, CALL_MAIN);
   rte_eal_mp_wait_lcore();
 
-  uint64_t total_ticks = 0, total_pkts = 0, total_faulty = 0, max_ticks = 0;
+  uint64_t total_ticks = 0, total_pkts = 0, max_ticks = 0;
   for (auto &tb : info.thread_blocks) {
     total_ticks += tb.ticks;
     total_pkts += tb.pkts;
-    total_faulty += tb.faulty;
     max_ticks = std::max(max_ticks, tb.ticks);
   }
 
