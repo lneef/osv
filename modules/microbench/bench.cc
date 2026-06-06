@@ -85,11 +85,13 @@ struct capabilities {
 };
 
 struct thread_block {
+  static constexpr uint16_t kStackSize = 256;
   uint16_t rx_queue = 0;
   uint16_t tx_queue = 0;
   pool_ptr pool;
+  stack stck;
   uint64_t ticks = 0, pkts = 0, faulty = 0;
-  thread_block() : pool(nullptr, &rte_mempool_free) {}
+  thread_block() : pool(nullptr, &rte_mempool_free), stck(kStackSize) {}
 };
 
 struct port_info {
@@ -119,8 +121,8 @@ static constexpr unsigned RSS_KEY_LEN = 40;
 static void setup_reta(port_info &info, uint32_t nrx, uint32_t reta_size) {
   if (reta_size == 0)
     return;
-  auto groups = (reta_size + RTE_ETH_RETA_GROUP_SIZE - 1) /
-                RTE_ETH_RETA_GROUP_SIZE;
+  auto groups =
+      (reta_size + RTE_ETH_RETA_GROUP_SIZE - 1) / RTE_ETH_RETA_GROUP_SIZE;
   std::vector<rte_eth_rss_reta_entry64> reta(groups);
   for (auto i = 0u; i < reta_size; ++i) {
     uint32_t reta_id = i / RTE_ETH_RETA_GROUP_SIZE;
@@ -148,8 +150,10 @@ static int configure_port(port_info &info, benchmark_config &config) {
   }
   info.dev->get_dev_info(&dinfo);
 
-  uint16_t rx_desc = std::min<uint16_t>(kDefaultDescNum, dinfo.rx_desc_lim.nb_max);
-  uint16_t tx_desc = std::min<uint16_t>(kDefaultDescNum, dinfo.tx_desc_lim.nb_max);
+  uint16_t rx_desc =
+      std::min<uint16_t>(kDefaultDescNum, dinfo.rx_desc_lim.nb_max);
+  uint16_t tx_desc =
+      std::min<uint16_t>(kDefaultDescNum, dinfo.tx_desc_lim.nb_max);
   rte_eth_dev_adjust_nb_rx_tx_desc(info.port_id, &rx_desc, &tx_desc);
 
   if (dinfo.tx_offload_capa & RTE_ETH_TX_OFFLOAD_IPV4_CKSUM)
@@ -195,18 +199,24 @@ static int configure_port(port_info &info, benchmark_config &config) {
     std::string name = "pool-" + std::to_string(i);
     uint32_t pool_sz = static_cast<uint32_t>(2 * rx_desc - 1) +
                        static_cast<uint32_t>(2 * tx_desc - 1);
-    tb.pool = pool_ptr(rte_pktmbuf_pool_create(name.c_str(), pool_sz,
-                                               kMempoolCacheSize, 0,
-                                               minidpdk::mem_pool::kMaxDataLen, 0),
-                       &rte_mempool_free);
+    tb.pool = pool_ptr(
+        rte_pktmbuf_pool_create(name.c_str(), pool_sz, kMempoolCacheSize, 0,
+                                minidpdk::mem_pool::kMaxDataLen, 0),
+        &rte_mempool_free);
     if (!tb.pool) {
       std::cout << "pool create failed" << std::endl;
       return 1;
     }
     tb.rx_queue = i;
     tb.tx_queue = i;
-    if (rte_eth_rx_queue_setup(info.port_id, i, rx_desc, 0, &rxconf,
-                               tb.pool.get())) {
+    if (rte_eth_rx_queue_setup(
+            info.port_id, i, rx_desc, 0, &rxconf, tb.pool.get(),
+            [&tb](rte_mbuf **pkts, uint16_t n) {
+              auto space = std::min<uint16_t>(tb.stck.free_space(), n);
+              tb.stck.push(reinterpret_cast<void *const *>(pkts), space);
+              if (space < n)
+                rte_pktmbuf_free_bulk(pkts + space, n - space);
+            })) {
       std::cout << "rx queue setup failed" << std::endl;
       return 1;
     }
@@ -297,13 +307,16 @@ static int lcore_ping(void *arg) {
     for (auto *pkt : pkts)
       create_packet(config.app, pkt);
     init_packets(pkts);
-    nb_tx = rte_eth_tx_burst(info.port_id, tb.tx_queue, pkts.data(), burst_size);
+    nb_tx =
+        rte_eth_tx_burst(info.port_id, tb.tx_queue, pkts.data(), burst_size);
     total = 0;
     do {
-      nb_rx = rte_eth_rx_burst(info.port_id, tb.rx_queue, rpkts.data(),
-                               burst_size);
-      if (nb_rx)
+      nb_rx = tb.stck.size();
+      if (nb_rx){
+        assert(nb_rx <= burst_size);  
+        tb.stck.pop(reinterpret_cast<void**>(rpkts.data()), nb_rx);  
         total += receive_packets_ping(tb, rpkts, nb_rx);
+      }
     } while (total < nb_tx && rte_get_timer_cycles() < end);
   }
   return 0;
@@ -362,10 +375,14 @@ int main(int argc, char *argv[]) {
   auto &conf = config.app;
   int opt, option_index;
   static const struct option long_options[] = {
-      {"dip", required_argument, 0, 0},   {"sip", required_argument, 0, 0},
-      {"dmac", required_argument, 0, 0},  {"rt", required_argument, 0, 0},
-      {"mtu", required_argument, 0, 0},   {"mode", required_argument, 0, 0},
-      {"bs", required_argument, 0, 0},    {"cores", required_argument, 0, 0},
+      {"dip", required_argument, 0, 0},
+      {"sip", required_argument, 0, 0},
+      {"dmac", required_argument, 0, 0},
+      {"rt", required_argument, 0, 0},
+      {"mtu", required_argument, 0, 0},
+      {"mode", required_argument, 0, 0},
+      {"bs", required_argument, 0, 0},
+      {"cores", required_argument, 0, 0},
       {0, 0, 0, 0}};
 
   while ((opt = getopt_long(argc, argv, "", long_options, &option_index)) !=
