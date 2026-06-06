@@ -1,41 +1,50 @@
 #pragma once
 
-#include <cstring>
 #include <minidpdk/util.hh>
-#include <osv/mutex.h>
 #include <osv/preempt-lock.hh>
 #include <osv/sched.hh>
-#include <vector>
 
 struct stack {
-  std::vector<void *> objs;
+  size_t capacity;
   size_t head = 0;
+  void *objs[];
 
-  stack(size_t size) : objs(size) {}
+  stack(size_t size) : capacity(size), head(0) {}
 
-  static stack *create(size_t size) { return new stack(size); }
+  static constexpr size_t memsize(size_t size) {
+    return sizeof(stack) + size * sizeof(void *);
+  }
 
-  static void destroy(stack *s) { delete s; }
+  static stack *create(size_t size) {
+    return new (::operator new(memsize(size))) stack(size);
+  }
 
+  static void destroy(stack *s) {
+    s->~stack();
+    ::operator delete(s);
+  }
+ 
+  __attribute__((optimize("no-tree-loop-distribute-patterns")))
   unsigned int push(void *const *obj_table, unsigned int n) {
     WITH_LOCK(preempt_lock) {
-      if (unlikely(objs.size() - head < n))
+      if (unlikely(capacity - head < n))
         return 0;
-      std::memcpy(&objs[head], obj_table, n * sizeof(void *));
+      for (unsigned i = 0; i < n; ++i)
+        objs[head + i] = obj_table[i];
       head += n;
     }
     return n;
   }
 
   unsigned free_space() const{
-      return objs.size() - head;
+      return capacity - head;
   }
 
   unsigned size() const{
       return head;
   }
 
-  unsigned int pop(void **obj_table, unsigned int n) {  
+  unsigned int pop(void **obj_table, unsigned int n) {
     WITH_LOCK(preempt_lock) {
       if (unlikely(head < n))
         return 0;

@@ -68,6 +68,7 @@ template <typename T> static __inline void prefetch(rte_mbuf *pbuf, T &data) {
 }
 
 using pool_ptr = std::unique_ptr<rte_pktmbuf_pool, decltype(&rte_mempool_free)>;
+using stack_ptr = std::unique_ptr<stack, decltype(&stack::destroy)>;
 
 enum class opmode { PING, PONG, RECEIVE };
 
@@ -89,9 +90,11 @@ struct thread_block {
   uint16_t rx_queue = 0;
   uint16_t tx_queue = 0;
   pool_ptr pool;
-  stack stck;
+  stack_ptr stck;
   uint64_t ticks = 0, pkts = 0, faulty = 0;
-  thread_block() : pool(nullptr, &rte_mempool_free), stck(kStackSize) {}
+  thread_block()
+      : pool(nullptr, &rte_mempool_free),
+        stck(stack::create(kStackSize), &stack::destroy) {}
 };
 
 struct port_info {
@@ -183,7 +186,7 @@ static int configure_port(port_info &info, benchmark_config &config) {
     rssconf.rss_key = nullptr;
     rssconf.rss_hf = 0;
   }
-
+  conf.intr_conf.rxq = 1;
   if (rte_eth_dev_configure(info.port_id, nb_cores, nb_cores, &conf)) {
     std::cout << "dev configure failed" << std::endl;
     return 1;
@@ -212,8 +215,8 @@ static int configure_port(port_info &info, benchmark_config &config) {
     if (rte_eth_rx_queue_setup(
             info.port_id, i, rx_desc, 0, &rxconf, tb.pool.get(),
             [&tb](rte_mbuf **pkts, uint16_t n) {
-              auto space = std::min<uint16_t>(tb.stck.free_space(), n);
-              tb.stck.push(reinterpret_cast<void *const *>(pkts), space);
+              auto space = std::min<uint16_t>(tb.stck->free_space(), n);
+              tb.stck->push(reinterpret_cast<void *const *>(pkts), space);
               if (space < n)
                 rte_pktmbuf_free_bulk(pkts + space, n - space);
             })) {
@@ -311,10 +314,10 @@ static int lcore_ping(void *arg) {
         rte_eth_tx_burst(info.port_id, tb.tx_queue, pkts.data(), burst_size);
     total = 0;
     do {
-      nb_rx = tb.stck.size();
+      nb_rx = tb.stck->size();
       if (nb_rx){
-        assert(nb_rx <= burst_size);  
-        tb.stck.pop(reinterpret_cast<void**>(rpkts.data()), nb_rx);  
+        assert(nb_rx <= burst_size);
+        tb.stck->pop(reinterpret_cast<void**>(rpkts.data()), nb_rx);
         total += receive_packets_ping(tb, rpkts, nb_rx);
       }
     } while (total < nb_tx && rte_get_timer_cycles() < end);
