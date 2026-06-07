@@ -1,6 +1,8 @@
 #include <cerrno>
 #include <minidpdk/mem.hh>
 #include <minidpdk/slab.hh>
+#include <osv/preempt-lock.hh>
+#include <osv/sched.hh>
 #include <cassert>
 #include <cstdint>
 #include <malloc.h>

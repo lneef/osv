@@ -1,9 +1,6 @@
 #pragma once
 
 #include <minidpdk/util.hh>
-#include <osv/preempt-lock.hh>
-#include <osv/sched.hh>
-
 struct stack {
   size_t capacity;
   size_t head = 0;
@@ -34,6 +31,5 @@ struct stack {
       return head;
   }
 
-  // Defined out-of-line in core/mem.cc (see push() above for rationale).
   unsigned int pop(void **obj_table, unsigned int n);
 };
