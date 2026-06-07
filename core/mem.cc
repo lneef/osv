@@ -60,3 +60,25 @@ void rte_mempool_free(rte_mempool *pool){
     free(pool);
 }
 
+unsigned int stack::push(void *const *obj_table, unsigned int n) {
+    WITH_LOCK(preempt_lock) {
+        if (unlikely(capacity - head < n))
+            return 0;
+        for (unsigned i = 0; i < n; ++i)
+            objs[head + i] = obj_table[i];
+        head += n;
+    }
+    return n;
+}
+
+unsigned int stack::pop(void **obj_table, unsigned int n) {
+    WITH_LOCK(preempt_lock) {
+        if (unlikely(head < n))
+            return 0;
+        for (unsigned i = 0; i < n; ++i)
+            obj_table[n - i - 1] = objs[head - n + i];
+        head -= n;
+    }
+    return n;
+}
+

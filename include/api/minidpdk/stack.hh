@@ -23,18 +23,8 @@ struct stack {
     s->~stack();
     ::operator delete(s);
   }
- 
-  __attribute__((optimize("no-tree-loop-distribute-patterns")))
-  unsigned int push(void *const *obj_table, unsigned int n) {
-    WITH_LOCK(preempt_lock) {
-      if (unlikely(capacity - head < n))
-        return 0;
-      for (unsigned i = 0; i < n; ++i)
-        objs[head + i] = obj_table[i];
-      head += n;
-    }
-    return n;
-  }
+
+  unsigned int push(void *const *obj_table, unsigned int n);
 
   unsigned free_space() const{
       return capacity - head;
@@ -44,14 +34,6 @@ struct stack {
       return head;
   }
 
-  unsigned int pop(void **obj_table, unsigned int n) {
-    WITH_LOCK(preempt_lock) {
-      if (unlikely(head < n))
-        return 0;
-      for(unsigned i = 0; i < n; ++i)
-          obj_table[n - i - 1] = objs[head - n + i];
-      head -= n;
-    }
-    return n;
-  }
+  // Defined out-of-line in core/mem.cc (see push() above for rationale).
+  unsigned int pop(void **obj_table, unsigned int n);
 };
