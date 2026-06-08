@@ -8,6 +8,7 @@
 
 #include <minidpdk/util.hh>
 #include <minidpdk/stack.hh>
+#include <minidpdk/page_store.hh>
 #include <osv/mmu.hh>
 #include <osv/types.h>
 
@@ -133,50 +134,8 @@ struct alignas(64) obj_header {
 
 inline void mbuf_free(mbuf *buf);
 
-struct alignas(64) page_header {
-  page_header *next;
-  page_header *prev;
-  uintptr_t iova;
-
-  static void list_remove(page_header *s) {
-    s->prev->next = s->next;
-    s->next->prev = s->prev;
-  }
-
-  page_header() : next(nullptr), prev(nullptr) {}
-};
-
-static_assert(sizeof(page_header) % 64 == 0, "");
-
-inline void mbuf_free(mbuf *buf);
-
 using init_fn_t = void (*)(mbuf **, uint16_t, void *);
-struct page_storage {
-  static constexpr size_t kDefaultCacheSize = 256;
-  struct page_list {
-    page_header head, tail;
-    page_list() : head(), tail() {
-      head.next = &tail;
-      tail.prev = &head;
-    }
 
-    void list_push(page_header *s) {
-      s->next = head.next;
-      s->prev = &head;
-      head.next->prev = s;
-      head.next = s;
-    }
-
-    bool empty() const { return head.next == &tail; }
-
-    page_header *front() { return head.next; }
-  };
-
-  page_list regions;
-  page_storage() : regions() {}
-};
-
-inline void mbuf_free(mbuf *buf);
 using mbuf_ptr = std::unique_ptr<mbuf, decltype(&mbuf_free)>;
 
 class mem_pool {
@@ -186,12 +145,14 @@ public:
   static constexpr size_t kDefaultSize =
       kMaxDataLen + kDefaultHeadroom + sizeof(mbuf) + sizeof(obj_header);
   static_assert(kDefaultSize % 64  == 0, "");
-  static constexpr size_t kSlabSize = 2 * 1024 * 1024;
-
 public:
-  mem_pool(unsigned size, void *priv = nullptr, init_fn_t init_fn = nullptr)
-      : ps(), objs(stack::create(size)), obj_size(kDefaultSize), priv(priv), init_fn(init_fn){
-      while(objs->free_space())    
+  mem_pool(unsigned size, size_t data_size = kMaxDataLen, void *priv = nullptr,
+           init_fn_t init_fn = nullptr)
+      : ps(page_store::instance()), objs(stack::create(size)), data_len(data_size),
+        obj_size((data_size + kDefaultHeadroom + sizeof(mbuf) +
+                  sizeof(obj_header) + 63) & ~size_t(63)),
+        priv(priv), init_fn(init_fn){
+      while(objs->free_space())
         alloc_new_region();
   }
 
@@ -204,7 +165,7 @@ public:
   }
 
   uintptr_t get_iova(void * ptr){
-      auto *ph = reinterpret_cast<page_header*>(reinterpret_cast<uintptr_t>(ptr) & ~(kSlabSize - 1));
+      auto *ph = reinterpret_cast<page_header*>(reinterpret_cast<uintptr_t>(ptr) & ~(page_store::page_size - 1));
       auto *ptr_byte = static_cast<uint8_t*>(ptr);
       auto *ph_byte = reinterpret_cast<uint8_t*>(ph);
       return ph->iova + (ptr_byte - ph_byte);
@@ -217,24 +178,21 @@ public:
   mbuf *alloc_single() { return alloc_default(); }
 
   void alloc_new_region() {
-    auto *region = memory::alloc_huge_page(mmu::huge_page_size);
-    assert(region != nullptr);
-    auto *s = new (region) page_header();
-    auto *base = reinterpret_cast<uint8_t *>(region) + sizeof(page_header);
-    s->iova = mmu::virt_to_phys(s);
-    size_t space = kSlabSize - sizeof(page_header);
-    ps.regions.list_push(s);
+    auto *s = ps->alloc_region();
+    auto *base = reinterpret_cast<uint8_t *>(s) + sizeof(page_header);
+    size_t space = page_store::page_size - sizeof(page_header);
     size_t off = 0;
     while (objs->free_space() && off + obj_size <= space) {
       auto *obj = new (base + off) obj_header;
       obj->next = nullptr;
       obj->iova = s->iova + sizeof(page_header) + off;
       auto *m = new (obj + 1) mbuf(nullptr, this,
-                         obj->iova + sizeof(obj_header), kMaxDataLen, 1, 0,
+                         obj->iova + sizeof(obj_header), data_len, 1, 0,
                          kDefaultHeadroom);
       assert(m->iova == get_iova(m) + sizeof(mbuf) + kDefaultHeadroom);
       objs->push(reinterpret_cast<void* const*>(&m), 1);
       off += obj_size;
+      s->free -= obj_size;
     }
   }
 
@@ -242,7 +200,7 @@ public:
     auto *obj_hdr = reinterpret_cast<obj_header *>(
         reinterpret_cast<uint8_t *>(obj) - sizeof(obj_header));
     new (obj) mbuf(nullptr, this,
-                   obj_hdr->iova + sizeof(obj_header), kMaxDataLen, 1, 0,
+                   obj_hdr->iova + sizeof(obj_header), data_len, 1, 0,
                    kDefaultHeadroom);
       assert(obj->iova == get_iova(obj) + sizeof(mbuf) + kDefaultHeadroom);
       objs->push(reinterpret_cast<void* const*>(&obj), 1);
@@ -258,7 +216,7 @@ public:
     }
   }
 
-  constexpr size_t get_data_size() const { return kMaxDataLen; }
+  size_t get_data_size() const { return data_len; }
 
   mbuf_ptr alloc_default_safe() {
     auto *pkt = alloc_default();
@@ -266,21 +224,13 @@ public:
   }
 
   ~mem_pool() {
-    auto free_pages = [](page_storage::page_list &list) {
-      auto *s = list.head.next;
-      while (s != &list.tail) {
-        auto *next = s->next;
-        memory::free_huge_page(s, mmu::huge_page_size);
-        s = next;
-      }
-    };
-    free_pages(ps.regions);
     stack::destroy(objs);
   }
 
 private:
-  page_storage ps;
+  std::shared_ptr<page_store> ps;
   stack *objs;
+  size_t data_len;
   size_t obj_size;
 
 public:

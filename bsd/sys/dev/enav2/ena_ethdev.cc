@@ -962,6 +962,10 @@ static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
     ring->intr_thread = sched::thread::make(
         [ring, dev]() { ena_rx_cleanup(ring, dev, ring->handler); },
         sched::thread::attr().pin(cpus[ring->id]));
+    // Real-time priority so the RX cleanup thread deterministically preempts a
+    // running application thread on the same core when an interrupt wakes it,
+    // instead of relying on the fair-share runtime comparison.
+    ring->intr_thread.load()->set_realtime_priority(1);
     ring->intr_thread.load()->start();
   }
 

@@ -1,6 +1,7 @@
+#include <atomic>
 #include <cerrno>
 #include <minidpdk/mem.hh>
-#include <minidpdk/slab.hh>
+#include <minidpdk/mem_pool.hh>
 #include <osv/preempt-lock.hh>
 #include <osv/sched.hh>
 #include <cassert>
@@ -49,13 +50,12 @@ const void* rte_pktmbuf_read(rte_mbuf *m, uint32_t off,
 rte_mempool *rte_pktmbuf_pool_create(const char *name, unsigned n,
                                      unsigned cache_size, uint16_t priv_size,
                                      uint16_t data_room_size, int socket_id){
-    assert(data_room_size <= minidpdk::mem_pool::kMaxDataLen);
+    assert(data_room_size);
     (void)cache_size;
     (void)priv_size;
     (void)socket_id;
-    (void)data_room_size;
     auto *slab = malloc(sizeof(minidpdk::mem_pool));
-    return new(slab) minidpdk::mem_pool(n);
+    return new(slab) minidpdk::mem_pool(n, data_room_size);
 }
 void rte_mempool_free(rte_mempool *pool){
     pool->~mem_pool();
@@ -64,22 +64,22 @@ void rte_mempool_free(rte_mempool *pool){
 
 unsigned int stack::push(void *const *obj_table, unsigned int n) {
     WITH_LOCK(preempt_lock) {
-        if (unlikely(capacity - head < n))
+        if (unlikely(capacity - head.load(std::memory_order_relaxed) < n))
             return 0;
         for (unsigned i = 0; i < n; ++i)
             objs[head + i] = obj_table[i];
-        head += n;
+        head.fetch_add(n, std::memory_order_relaxed);
     }
     return n;
 }
 
 unsigned int stack::pop(void **obj_table, unsigned int n) {
     WITH_LOCK(preempt_lock) {
-        if (unlikely(head < n))
+        if (unlikely(head.load(std::memory_order_relaxed) < n))
             return 0;
         for (unsigned i = 0; i < n; ++i)
             obj_table[n - i - 1] = objs[head - n + i];
-        head -= n;
+        head.fetch_sub(n, std::memory_order_relaxed);
     }
     return n;
 }

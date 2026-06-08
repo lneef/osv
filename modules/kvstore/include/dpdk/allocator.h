@@ -1,5 +1,5 @@
 #pragma once
-#include <minidpdk/slab.hh>
+#include <minidpdk/mem_pool.hh>
 #include <memory>
 #include <minidpdk/mem.hh>
 

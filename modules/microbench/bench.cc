@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <minidpdk/mem.hh>
 #include <minidpdk/net.hh>
-#include <minidpdk/slab.hh>
+#include <minidpdk/mem_pool.hh>
 #include <minidpdk/time.hh>
 #include <minidpdk/util.hh>
 

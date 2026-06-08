@@ -1,7 +1,7 @@
 #ifndef BYPASS_MEM_H
 #define BYPASS_MEM_H
 
-#include "minidpdk/slab.hh"
+#include "minidpdk/mem_pool.hh"
 #include <minidpdk/time.hh>
 #include <minidpdk/util.hh>
 #include <cassert>

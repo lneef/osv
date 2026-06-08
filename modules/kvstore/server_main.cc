@@ -18,7 +18,7 @@
 #include <minidpdk/lcore.hh>
 #include <minidpdk/mem.hh>
 #include <minidpdk/net.hh>
-#include <minidpdk/slab.hh>
+#include <minidpdk/mem_pool.hh>
 #include <minidpdk/time.hh>
 #include <signal.h>
 #include <utility>
