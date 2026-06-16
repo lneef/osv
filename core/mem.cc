@@ -2,7 +2,7 @@
 #include <cerrno>
 #include <minidpdk/mem.hh>
 #include <minidpdk/mem_pool.hh>
-#include <osv/preempt-lock.hh>
+#include <osv/irqlock.hh>
 #include <osv/sched.hh>
 #include <cassert>
 #include <cstdint>
@@ -63,7 +63,8 @@ void rte_mempool_free(rte_mempool *pool){
 }
 
 unsigned int stack::push(void *const *obj_table, unsigned int n) {
-    WITH_LOCK(preempt_lock) {
+    irq_save_lock_type irq_lock;
+    WITH_LOCK(irq_lock) {
         if (unlikely(capacity - head.load(std::memory_order_relaxed) < n))
             return 0;
         for (unsigned i = 0; i < n; ++i)
@@ -74,7 +75,8 @@ unsigned int stack::push(void *const *obj_table, unsigned int n) {
 }
 
 unsigned int stack::pop(void **obj_table, unsigned int n) {
-    WITH_LOCK(preempt_lock) {
+    irq_save_lock_type irq_lock;
+    WITH_LOCK(irq_lock) {
         if (unlikely(head.load(std::memory_order_relaxed) < n))
             return 0;
         for (unsigned i = 0; i < n; ++i)

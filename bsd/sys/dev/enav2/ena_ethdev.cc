@@ -227,7 +227,6 @@ static int ena_create_io_queue(struct rte_eth_dev *dev, struct ena_ring *ring);
 static void ena_queue_stop(struct ena_ring *ring);
 static void ena_queue_stop_all(struct rte_eth_dev *dev,
                                enum ena_ring_type ring_type);
-static void ena_collect_intr_threads(struct ena_adapter *adapter);
 static int ena_queue_start(struct rte_eth_dev *dev, struct ena_ring *ring);
 static int ena_queue_start_all(struct rte_eth_dev *dev,
                                enum ena_ring_type ring_type);
@@ -918,28 +917,6 @@ static void ena_queue_stop_all(rte_eth_dev *dev, enum ena_ring_type ring_type) {
       ena_queue_stop(&queues[i]);
 }
 
-/* Signal, join and dispose the per-RX-ring interrupt handler threads. Only
- * relevant when MSI-X is enabled, since that is when the handler threads are
- * started. Must run before the IO queues are destroyed so the threads stop
- * touching the ring first.
- */
-static void ena_collect_intr_threads(ena_adapter *adapter) {
-
-  uint16_t nb_rx = adapter->edev->data.nb_rx_queues;
-  for (uint16_t i = 0; i < nb_rx; i++) {
-    ena_ring *ring = &adapter->rx_ring[i];
-    sched::thread *t = ring->intr_thread;
-    if (!t)
-      continue;
-    ring->intr_thread = nullptr;
-    ring->should_stop.store(true, std::memory_order_relaxed);
-    // this is safe (noop cas)
-    t->wake();
-    t->join();
-    sched::thread::dispose(t);
-  }
-}
-
 static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
   int rc, bufs_num;
   rc = ena_create_io_queue(dev, ring);
@@ -954,19 +931,6 @@ static int ena_queue_start(struct rte_eth_dev *dev, ena_ring *ring) {
   if (ring->type == ENA_RING_TYPE_TX) {
     ring->tx_stats.available_desc = ena_com_free_q_entries(ring->ena_com_io_sq);
     return 0;
-  } else if (dev->data.dev_conf.intr_conf.rxq) {
-    auto &cpus = sched::cpus;
-    assert(ring->handler);
-    assert(ring->id < cpus.size());
-    ring->should_stop.store(false, std::memory_order_release);
-    ring->intr_thread = sched::thread::make(
-        [ring, dev]() { ena_rx_cleanup(ring, dev, ring->handler); },
-        sched::thread::attr().pin(cpus[ring->id]));
-    // Real-time priority so the RX cleanup thread deterministically preempts a
-    // running application thread on the same core when an interrupt wakes it,
-    // instead of relying on the fair-share runtime comparison.
-    ring->intr_thread.load()->set_realtime_priority(1);
-    ring->intr_thread.load()->start();
   }
 
   bufs_num = ring->ring_size - 1;
@@ -1945,7 +1909,6 @@ int ena_eth_dev::stop() {
   uint16_t i;
   int rc;
   // rte_timer_stop_sync(&adapter->timer_wd);
-  ena_collect_intr_threads(adapter);
   ena_queue_stop_all(this, ENA_RING_TYPE_RX);
   ena_queue_stop_all(this, ENA_RING_TYPE_TX);
 
@@ -2603,24 +2566,15 @@ static void ena_rx_cleanup(ena_ring *rxq, rte_eth_dev *dev,
   static constexpr unsigned kDefaultBurstSize = 32;
   static constexpr unsigned kDefaultCleanupBudget = 1024;
   rte_mbuf *rxb[kDefaultBurstSize];
-  while (1) {
-    sched::thread::current()->wait_for([rxq] {
-      return rxq->rx_pkts_ready.load(std::memory_order_acquire) ||
-             rxq->should_stop.load(std::memory_order_acquire);
-    });
-    if (rxq->should_stop.load(std::memory_order_acquire))
-      return;
-    unsigned rx_n = 0;
-    do {
-      auto rx_nb = ena_rx_burst(dev, rxq->id, rxb, kDefaultBurstSize);
-      if (!rx_nb)
-        break;
-      rx_n += rx_nb;
-      handler(rxb, rx_nb);
-    } while (rx_n < kDefaultCleanupBudget);
-    rxq->rx_pkts_ready.store(false, std::memory_order_release);
-    ena_rx_queue_intr_set(rxq, true);
-  }
+  unsigned rx_n = 0;
+  do {
+    auto rx_nb = ena_rx_burst(dev, rxq->id, rxb, kDefaultBurstSize);
+    if (!rx_nb)
+      break;
+    rx_n += rx_nb;
+    handler(rxb, rx_nb);
+  } while (rx_n < kDefaultCleanupBudget);
+  ena_rx_queue_intr_set(rxq, true);
 }
 
 /* Re-arm (unmask) a single RX queue's interrupt at the device. */
@@ -2665,10 +2619,7 @@ static int ena_enable_msix(ena_adapter *adapter) {
 
 static void ena_handle_msix(ena_ring *rx_ring) {
   rx_ring->interrupts++;
-  rx_ring->rx_pkts_ready.store(true, std::memory_order_release);
-  auto *t = rx_ring->intr_thread.load(std::memory_order_relaxed);
-  if (t)
-    t->wake_with_irq_disabled();
+  ena_rx_cleanup(rx_ring, rx_ring->adapter->edev, rx_ring->handler);
 }
 
 static int ena_request_io_irq(struct ena_adapter *adapter) {
